@@ -2,6 +2,8 @@
 
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchFrameException
 import argparse
 from urllib.parse import urlparse
@@ -93,7 +95,8 @@ def main():
         display = Display(visible=0, size=(1920, 1080))
         display.start()
 
-    driver = webdriver.Chrome(executable_path=chrome_driver, desired_capabilities=d, options=options)
+    service = Service(executable_path=chrome_driver, desired_capabilities=d)
+    driver = webdriver.Chrome(service=service, options=options)
     time.sleep(timeout)
 
     # Set network conditions
@@ -140,7 +143,7 @@ def main():
     banner_data = click_banner(driver)
 
     if not "clicked_element" in banner_data:
-        iframe_contents = driver.find_elements_by_css_selector("iframe")
+        iframe_contents = driver.find_elements(By.CSS_SELECTOR, "iframe")
         for content in iframe_contents:
             log("Switching to frame: {}".format(content.id) )
             try:
@@ -193,7 +196,7 @@ def main():
     if visit_internals:
         log("Visiting Internal Pages")
         internal_urls = set()
-        eles = driver.find_elements_by_xpath("//*[@href]")
+        eles = driver.find_elements(By.XPATH, "//*[@href]")
         for elem in eles:
             url = elem.get_attribute('href').split("#")[0]
             #if url.startswith(driver.current_url) and url!=driver.current_url:
@@ -230,9 +233,9 @@ def clear_status():
     driver.execute_cdp_cmd('Network.clearBrowserCache', {})
     if not headless:
         driver.get("chrome://net-internals/#sockets")
-        driver.find_element_by_id("sockets-view-flush-button").click()
+        driver.find_element(By.ID, "sockets-view-flush-button").click()
         driver.get("chrome://net-internals/#dns")
-        driver.find_element_by_id("dns-view-clear-cache").click()
+        driver.find_element(By.ID, "dns-view-clear-cache").click()
     else:
         log("Warning: cannot clean DNS and socket cache in headless mode.")
 
@@ -291,7 +294,7 @@ def get_signature(element):
         
         if current.tag_name == "html":
             break
-        current = current.find_element_by_xpath('..')
+        current = current.find_element(By.XPATH, '..')
         if current == None:
             break
         
@@ -306,7 +309,7 @@ def click_banner(driver):
             accept_words_list.add(w)
 
     banner_data = {"matched_containers": [], "candidate_elements": []}
-    contents = driver.find_elements_by_css_selector(GLOBAL_SELECTOR)
+    contents = driver.find_elements(By.CSS_SELECTOR, GLOBAL_SELECTOR)
 
     candidate = None
 
