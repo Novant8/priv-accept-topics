@@ -16,6 +16,8 @@ import sys
 import json
 import time
 import re
+from urllib.parse import urlparse
+import requests
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -38,6 +40,7 @@ parser.add_argument('--network_conditions', type=str, default=None)
 parser.add_argument('--rum_speed_index', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
+parser.add_argument('--detect_topics', action='store_true')
 parser.add_argument('--xvfb', action='store_true')
 
 globals().update(vars(parser.parse_args()))
@@ -69,6 +72,10 @@ def main():
     
     if user_agent is not None:
         USER_AGENT_DEFAULT = user_agent
+
+    if detect_topics:
+        # Enable Topics API
+        options.add_argument("enable-privacy-sandbox-ads-apis")
         
     if lang is not None:
         stats["lang"] = lang
@@ -114,6 +121,7 @@ def main():
         log("Making Pre-First Visit")
         driver.get(url)
         time.sleep(timeout)
+        log("Getting data of pre-visit")
         get_data(driver)
         
     log("Making First Visit to: {}".format(url))
@@ -135,6 +143,7 @@ def main():
     stats["first-visit-landing-page"] = driver.current_url
     time.sleep(timeout)
     stats["first-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
+    log("Getting data of first visit")
     before_data = get_data(driver)
     make_screenshot("{}/all-first.png".format(screenshot_dir))
 
@@ -163,6 +172,7 @@ def main():
         stats["has-scrolled"] = True
     stats["has-found-banner"] = "clicked_element" in banner_data
     time.sleep(timeout)
+    log("Getting data of post-click")
     click_data = get_data(driver)
     make_screenshot("{}/all-click.png".format(screenshot_dir))
     log("URL after click: {}".format(driver.current_url))
@@ -189,6 +199,7 @@ def main():
     stats["second-visit-selenium-time"] = end_time-start_time
     time.sleep(timeout)
     stats["second-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
+    log("Getting data of second visit")
     after_data = get_data(driver)
     make_screenshot("{}/all-second.png".format(screenshot_dir))
 
@@ -205,7 +216,7 @@ def main():
             if domain_url == landing_domain and url!=driver.current_url:
                 internal_urls.add(url)
         if len(internal_urls) >= num_internal:
-            internal_urls_to_visit = random.sample(internal_urls, num_internal)
+            internal_urls_to_visit = random.sample(sorted(internal_urls), num_internal)
         else:
             log("Warning, only {} internal URLs to visit".format(len(internal_urls)) )
             internal_urls_to_visit = internal_urls
@@ -214,6 +225,7 @@ def main():
             log("Visiting internal URL: {}".format(internal_url ))
             driver.get(internal_url)
             time.sleep(timeout/num_internal)
+        log("Getting data of internal page visits")
         internal_data = get_data(driver)    
 
     # Save
@@ -250,6 +262,9 @@ def get_data(driver):
         data = { "urls": [],
                 "cookies": driver.execute_cdp_cmd('Network.getAllCookies', {})}
 
+    if detect_topics:
+        data["topics_api"] = { "attested_domains": set(), "users": set() }
+
     log = driver.get_log('performance')
 
     for entry in log:
@@ -265,6 +280,30 @@ def get_data(driver):
             if message["message"]["method"] == "Network.responseReceived":
                 url = message["message"]["params"]["response"]["url"]
                 data["urls"].append(url)
+
+        # Check for domains allowed to use Topics API, scripts using the API and relevant headers
+        if detect_topics:
+            if message["message"]["method"] == "Network.responseReceived":
+                url = message["message"]["params"]["response"]["url"]
+                domain = get_domain(url)
+                if attest_privacy_sandbox(domain):
+                    data["topics_api"]["attested_domains"].add(domain)
+                    response_is_script = message["message"]["params"]["type"] == "Script"
+                    response_has_topics_header = "Observe-Browsing-Topics" in message["message"]["params"]["response"]["headers"]
+                    if response_is_script and content_has_browsing_topics(url) or response_has_topics_header:
+                        data["topics_api"]["users"].add(url)
+            elif message["message"]["method"] == "Network.requestWillBeSent" and "Sec-Browsing-Topics" in message["message"]["params"]["request"]["headers"]:
+                url = message["message"]["params"]["request"]["url"]
+                data["topics_api"]["users"].add(url)
+
+    # Check for iframes with browsingtopics attribute
+    if detect_topics:
+        topics_iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[browsingtopics]")
+        urls = { iframe.get_attribute("src") for iframe in topics_iframes }
+        data["topics_api"]["users"] = data["topics_api"]["users"].union(urls)
+
+    data["topics_api"]["users"] = list(data["topics_api"]["users"])
+    data["topics_api"]["attested_domains"] = list(data["topics_api"]["attested_domains"])
 
     return data
 
@@ -352,6 +391,53 @@ def click_banner(driver):
 
     return banner_data
 
+def attest_privacy_sandbox(domain: str) -> bool:
+    # This cache memorizes the result of previous operations, saving significant amounts of time
+    global attestation_result_cache
+    try: attestation_result_cache
+    except NameError: attestation_result_cache = {}
+
+    domain_levels = domain.strip(".").split(".")
+
+    # Check each domain (from level 2 to level N) for the existence of the sandbox attestation file
+    for level in range(2,len(domain_levels)+1):
+        domain = ".".join(domain_levels[-level:])
+
+        cached_result = attestation_result_cache.get(domain)
+        if cached_result == True:
+            return True
+        elif cached_result == False:
+            continue
+
+        try:
+            r = requests.get("https://{}/.well-known/privacy-sandbox-attestations.json".format(domain), timeout=timeout)
+        except:
+            # Connection error or invalid URL, suppose the domain is not valid
+            attestation_result_cache[domain] = False
+            continue
+
+        content_type = r.headers.get('content-type') or r.headers.get('Content-Type')
+        if r.status_code == 200 and content_type is not None and "application/json" in content_type:
+            attestation_result_cache[domain] = True
+            return True
+        
+    return False
+
+def content_has_browsing_topics(url: str) -> bool:
+    try:
+        r = requests.get(url, timeout=timeout)
+    except:
+        # Connection error or invalid URL, suppose the script does not contain API calls
+        return False
+    
+    return r.status_code == 200 and "browsingTopics" in r.text or "browsingtopics" in r.text
+
+
+def get_domain(url, level = None):
+    domain = urlparse(url).netloc
+    domain_levels = domain.strip(".").split(".")
+    level = len(domain_levels) if level is None else level
+    return '.'.join(domain_levels[-level:])
 
 def match_domains(domain, match):
     labels_domains = domain.strip(".").split(".")
