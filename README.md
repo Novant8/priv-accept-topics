@@ -14,9 +14,11 @@ Given a website, the tool accomplishes these tasks:
 
 ### Prerequisites
 
-You need Python 3 with the `selenium` library. You also need Google Chrome and [chromedriver](https://chromedriver.chromium.org/) to allow Selenium using it.
-
-For using a Virtual Display, you need the `pyvirtualdisplay` Python module and xvfb installed on the machine.
+You need Python 3 with the libraries specified in the [requirements.txt](./requirements.txt) file. They can be installed by running
+```shell
+pip install -r requirements.txt
+```
+You also need Google Chrome and [chromedriver](https://chromedriver.chromium.org/) to allow Selenium using it. For using a Virtual Display, you need the `pyvirtualdisplay` Python module (included in the requirements file) and xvfb installed on the machine.
 
 Priv-Accept can also be built in a Docker image to allow parallel and isolated experiment. You can build the Docker image using the `Dockerfile` provided in this repo. The images extends the [BrowserTime](https://www.sitespeed.io/documentation/browsertime/) image to profit from the ready-to-use setup.
 
