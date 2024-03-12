@@ -300,10 +300,9 @@ def get_data(driver):
     if detect_topics:
         topics_iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[browsingtopics]")
         urls = { iframe.get_attribute("src") for iframe in topics_iframes }
-        data["topics_api"]["users"] = data["topics_api"]["users"].union(urls)
-
-    data["topics_api"]["users"] = list(data["topics_api"]["users"])
-    data["topics_api"]["attested_domains"] = list(data["topics_api"]["attested_domains"])
+        
+        data["topics_api"]["users"] = list(data["topics_api"]["users"].union(urls))
+        data["topics_api"]["attested_domains"] = list(data["topics_api"]["attested_domains"])
 
     return data
 
