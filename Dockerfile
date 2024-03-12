@@ -6,12 +6,14 @@
 FROM sitespeedio/browsertime:11.6.3
 LABEL maintainer="Priv Accept Team"
 
-RUN pip3 install selenium pyvirtualdisplay
-
 RUN mkdir /opt/priv-accept
+
+ADD requirements.txt /opt/priv-accept
+RUN pip3 install -r /opt/priv-accept/requirements.txt
+
 ADD priv-accept.py /opt/priv-accept
 ADD accept_words.txt /root/
 ADD rum-speedindex.js /root/
 
 WORKDIR /root/
-ENTRYPOINT ["/opt/priv-accept/priv-accept.py", "--chrome_driver", "/usr/src/app/node_modules/@sitespeed.io/chromedriver/vendor/chromedriver", "--docker"]
+ENTRYPOINT ["/opt/priv-accept/priv-accept.py", "--chrome_driver", "/usr/src/app/node_modules/@sitespeed.io/chromedriver/vendor/chromedriver", "--docker", "--detect_topics", "--xvfb" ]
