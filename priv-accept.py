@@ -450,9 +450,36 @@ def attest_privacy_sandbox(domain: str) -> bool:
 
         content_type = r.headers.get('content-type') or r.headers.get('Content-Type')
         if r.status_code == 200 and content_type is not None and "application/json" in content_type:
-            attestation_result_cache[domain] = True
-            return True
-        
+            # Document is a JSON object, check if it contains valid information
+            try:
+                attestation_json = r.json()
+            except requests.exceptions.JSONDecodeError:
+                attestation_result_cache[domain] = False
+                continue
+            
+            if valid_attestation_json(attestation_json, domain):
+                attestation_result_cache[domain] = True
+                return True
+    return False
+
+def valid_attestation_json(json, domain):
+    sandbox_attestations = json.get("privacy_sandbox_api_attestations")
+    if sandbox_attestations is None:
+        return False
+    for sandbox_attestation in sandbox_attestations:
+        expiry = sandbox_attestation.get("expiry_seconds_since_epoch")
+        if expiry is not None and expiry < time.time():
+            continue
+        enrollment_site = sandbox_attestation.get("enrollment_site")
+        if enrollment_site is None or get_domain(enrollment_site) != get_domain(domain, len(enrollment_site.strip(".").split("."))):
+            continue
+        platform_attestations = sandbox_attestation.get("platform_attestations")
+        for platform_attestation in platform_attestations:
+            platform = platform_attestation.get("platform")
+            if platform == "chrome":
+                topics_api_attestations = platform_attestation.get("attestations", {}).get("topics_api", {})
+                if topics_api_attestations.get("ServiceNotUsedForIdentifyingUserAcrossSites"):
+                    return True
     return False
 
 def content_has_browsing_topics(url: str) -> bool:
@@ -466,7 +493,8 @@ def content_has_browsing_topics(url: str) -> bool:
 
 
 def get_domain(url, level = None):
-    domain = urlparse(url).netloc
+    parse_result = urlparse(url)
+    domain = parse_result.netloc if len(parse_result.scheme) > 0 else parse_result.path
     domain_levels = domain.strip(".").split(".")
     level = len(domain_levels) if level is None else level
     return '.'.join(domain_levels[-level:])
