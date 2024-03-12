@@ -18,6 +18,7 @@ import time
 import re
 from urllib.parse import urlparse
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -41,6 +42,7 @@ parser.add_argument('--rum_speed_index', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
 parser.add_argument('--detect_topics', action='store_true')
+parser.add_argument('--worker_threads', type=int, default=5)
 parser.add_argument('--xvfb', action='store_true')
 
 globals().update(vars(parser.parse_args()))
@@ -264,45 +266,76 @@ def get_data(driver):
 
     if detect_topics:
         data["topics_api"] = { "attested_domains": set(), "users": set() }
+        attest_privacy_sandbox_futures = {} # Map domain with relative future object
+        scripts = []
+        attestation_needed = set()          # URLs that only need privacy sandbox attestation to be considered valid
 
     log = driver.get_log('performance')
 
-    for entry in log:
-        message = json.loads(entry["message"])
-        if full_net_log:
-            if message["message"]["method"] == "Network.responseReceived":
-                data["responses"].append(message["message"]["params"])
-            elif message["message"]["method"] == "Network.responseReceivedExtraInfo":
-                data["responses-extra"].append(message["message"]["params"])
-            elif message["message"]["method"] == "Network.requestWillBeSent":
-                data["requests"].append(message["message"]["params"])
-        else:
-            if message["message"]["method"] == "Network.responseReceived":
-                url = message["message"]["params"]["response"]["url"]
-                data["urls"].append(url)
+    # Perform the next for loop with a pool of available threads
+    with ThreadPoolExecutor(max_workers=worker_threads) as executor:
+        for entry in log:
+            message = json.loads(entry["message"])
+            if full_net_log:
+                if message["message"]["method"] == "Network.responseReceived":
+                    data["responses"].append(message["message"]["params"])
+                elif message["message"]["method"] == "Network.responseReceivedExtraInfo":
+                    data["responses-extra"].append(message["message"]["params"])
+                elif message["message"]["method"] == "Network.requestWillBeSent":
+                    data["requests"].append(message["message"]["params"])
+            else:
+                if message["message"]["method"] == "Network.responseReceived":
+                    url = message["message"]["params"]["response"]["url"]
+                    data["urls"].append(url)
 
-        # Check for domains allowed to use Topics API, scripts using the API and relevant headers
+                    if detect_topics:
+                        domain = get_domain(url)
+
+                        # Save domains to be attested, URLs of all scripts and URLs of links that use the Topics API headers and need privacy sandbox attestation
+                        if "Observe-Browsing-Topics" in message["message"]["params"]["response"]["headers"]:
+                            attestation_needed.add(url)
+                        elif len(domain) > 0 and not domain in attest_privacy_sandbox_futures:
+                            # Call attest_privacy_sandbox only once per unique domain
+                            attest_privacy_sandbox_futures[domain] = executor.submit(attest_privacy_sandbox, domain)
+                        elif message["message"]["params"]["type"] == "Script":
+                            scripts.append(url)
+                elif detect_topics and message["message"]["method"] == "Network.requestWillBeSent" and "Sec-Browsing-Topics" in message["message"]["params"]["request"]["headers"]:
+                    # Save URLs that contain the Sec-Browsing-Topics header in the request
+                    # They only need privacy sandbox attestation for the relative domain
+                    attestation_needed.add(url)
+
         if detect_topics:
-            if message["message"]["method"] == "Network.responseReceived":
-                url = message["message"]["params"]["response"]["url"]
-                domain = get_domain(url)
-                if attest_privacy_sandbox(domain):
+            # Swap keys and values in the futures dict: map each future object with the relative domain
+            future_to_domain = { future: url for url, future in attest_privacy_sandbox_futures.items() }
+            
+            # As each verification completes, save the domains where the attestation was successful
+            for future in as_completed(future_to_domain):
+                domain = future_to_domain[future]
+                if future.result():
                     data["topics_api"]["attested_domains"].add(domain)
-                    response_is_script = message["message"]["params"]["type"] == "Script"
-                    response_has_topics_header = "Observe-Browsing-Topics" in message["message"]["params"]["response"]["headers"]
-                    if response_is_script and content_has_browsing_topics(url) or response_has_topics_header:
-                        data["topics_api"]["users"].add(url)
-            elif message["message"]["method"] == "Network.requestWillBeSent" and "Sec-Browsing-Topics" in message["message"]["params"]["request"]["headers"]:
-                url = message["message"]["params"]["request"]["url"]
-                data["topics_api"]["users"].add(url)
 
-    # Check for iframes with browsingtopics attribute
-    if detect_topics:
-        topics_iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[browsingtopics]")
-        urls = { iframe.get_attribute("src") for iframe in topics_iframes }
-        
-        data["topics_api"]["users"] = list(data["topics_api"]["users"].union(urls))
-        data["topics_api"]["attested_domains"] = list(data["topics_api"]["attested_domains"])
+            # For each script that belongs to a domain that has been attested, check if it contains calls to the Topics API
+            # The below map maps the future with the relative URL
+            future_to_url = { executor.submit(content_has_browsing_topics, url): url for url in scripts if get_domain(url) in data["topics_api"]["attested_domains"] }
+            
+            # As each check completes, save the URL of the scripts that call the API
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                if future.result():
+                    data["topics_api"]["users"].add(url)
+
+            # Add URLs that needed privacy sandbox attestation
+            for url in attestation_needed:
+                if get_domain(url) in data["topics_api"]["attested_domains"]:
+                    data["topics_api"]["users"].add(url)
+
+            # Check for iframes with browsingtopics attribute in the current page
+            # Consider only URLs whose domain has passed privacy sandbox attestation
+            topics_iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[browsingtopics]")
+            urls = { iframe.get_attribute("src") for iframe in topics_iframes if iframe.get_attribute("src") in data["topics_api"]["attested_domains"] }
+            
+            data["topics_api"]["users"] = list(data["topics_api"]["users"].union(urls))
+            data["topics_api"]["attested_domains"] = list(data["topics_api"]["attested_domains"])
 
     return data
 
