@@ -41,6 +41,7 @@ parser.add_argument('--rum_speed_index', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
 parser.add_argument('--detect_topics', action='store_true')
+parser.add_argument('--privacy_sandbox_attestations', type=str, default='{}/.config/google-chrome/PrivacySandboxAttestationsPreloaded/2024.3.11.0/privacy-sandbox-attestations.dat'.format(os.path.expanduser('~')))
 parser.add_argument('--xvfb', action='store_true')
 
 globals().update(vars(parser.parse_args()))
@@ -105,6 +106,10 @@ def main():
     service = Service(executable_path=chrome_driver, desired_capabilities=d)
     driver = webdriver.Chrome(service=service, options=options)
     time.sleep(timeout)
+
+    if detect_topics:
+        global privacy_sandbox_domains
+        privacy_sandbox_domains = get_privacy_sandbox_attested_domains()
 
     # Set network conditions
     if network_conditions:
@@ -408,6 +413,10 @@ def attest_privacy_sandbox(domain: str) -> bool:
         elif cached_result == False:
             continue
 
+        if domain not in privacy_sandbox_domains:
+            attestation_result_cache[domain] = False
+            continue
+
         try:
             r = requests.get("https://{}/.well-known/privacy-sandbox-attestations.json".format(domain), timeout=timeout)
         except:
@@ -458,6 +467,12 @@ def content_has_browsing_topics(url: str) -> bool:
     
     return r.status_code == 200 and "browsingTopics" in r.text or "browsingtopics" in r.text
 
+def get_privacy_sandbox_attested_domains():
+    with open(privacy_sandbox_attestations) as file:
+        file_content = file.read()
+    non_url_chars = re.compile("[\\x00-\\x2c\\x7B-\\x7F]+")
+    urls_unchecked = re.split(non_url_chars, file_content)
+    return [ get_domain(url) for url in urls_unchecked if is_url(url) ]
 
 def get_domain(url, level = None):
     parse_result = urlparse(url)
@@ -471,6 +486,12 @@ def match_domains(domain, match):
     labels_match = match.strip(".").split(".")
     return labels_match == labels_domains[-len(labels_match):]
 
+def is_url(url):
+  try:
+    result = urlparse(url)
+    return all([result.scheme, result.netloc])
+  except ValueError:
+    return False
 
 def log(str):
     print(datetime.now().strftime("[%Y-%m-%d %H:%M:%S]"), str)
