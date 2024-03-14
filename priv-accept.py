@@ -15,9 +15,6 @@ import os
 import sys
 import json
 import time
-import re
-from urllib.parse import urlparse
-import requests
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -41,7 +38,6 @@ parser.add_argument('--rum_speed_index', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
 parser.add_argument('--detect_topics', action='store_true')
-parser.add_argument('--privacy_sandbox_attestations', type=str, default='{}/.config/google-chrome/PrivacySandboxAttestationsPreloaded/2024.3.11.0/privacy-sandbox-attestations.dat'.format(os.path.expanduser('~')))
 parser.add_argument('--xvfb', action='store_true')
 
 globals().update(vars(parser.parse_args()))
@@ -106,14 +102,6 @@ def main():
     service = Service(executable_path=chrome_driver, desired_capabilities=d)
     driver = webdriver.Chrome(service=service, options=options)
     time.sleep(timeout)
-
-    if detect_topics:
-        global privacy_sandbox_domains
-        try:
-            privacy_sandbox_domains = get_privacy_sandbox_attested_domains()
-        except FileNotFoundError:
-            log("Privacy Sandbox attestation file not found. No pre-computed domains will be used.")
-            privacy_sandbox_domains = []
 
     # Set network conditions
     if network_conditions:
@@ -271,9 +259,6 @@ def get_data(driver):
         data = { "urls": [],
                 "cookies": driver.execute_cdp_cmd('Network.getAllCookies', {})}
 
-    if detect_topics:
-        data["topics_api"] = { "attested_domains": set(), "users": set() }
-
     log = driver.get_log('performance')
 
     for entry in log:
@@ -289,29 +274,6 @@ def get_data(driver):
             if message["message"]["method"] == "Network.responseReceived":
                 url = message["message"]["params"]["response"]["url"]
                 data["urls"].append(url)
-
-        # Check for domains allowed to use Topics API, scripts using the API and relevant headers
-        if detect_topics:
-            if message["message"]["method"] == "Network.responseReceived":
-                url = message["message"]["params"]["response"]["url"]
-                domain = get_domain(url)
-                if attest_privacy_sandbox(domain):
-                    data["topics_api"]["attested_domains"].add(domain)
-                    response_is_script = message["message"]["params"]["type"] == "Script"
-                    response_has_topics_header = "Observe-Browsing-Topics" in message["message"]["params"]["response"]["headers"]
-                    if response_is_script and content_has_browsing_topics(url) or response_has_topics_header:
-                        data["topics_api"]["users"].add(url)
-            elif message["message"]["method"] == "Network.requestWillBeSent" and "Sec-Browsing-Topics" in message["message"]["params"]["request"]["headers"]:
-                url = message["message"]["params"]["request"]["url"]
-                data["topics_api"]["users"].add(url)
-
-    # Check for iframes with browsingtopics attribute
-    if detect_topics:
-        topics_iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[browsingtopics]")
-        urls = { iframe.get_attribute("src") for iframe in topics_iframes }
-        
-        data["topics_api"]["users"] = list(data["topics_api"]["users"].union(urls))
-        data["topics_api"]["attested_domains"] = list(data["topics_api"]["attested_domains"])
 
     return data
 
@@ -399,103 +361,12 @@ def click_banner(driver):
 
     return banner_data
 
-def attest_privacy_sandbox(domain: str) -> bool:
-    # This cache memorizes the result of previous operations, saving significant amounts of time
-    global attestation_result_cache
-    try: attestation_result_cache
-    except NameError: attestation_result_cache = {}
-
-    domain_levels = domain.strip(".").split(".")
-
-    # Check each domain (from level 2 to level N) for the existence of the sandbox attestation file
-    for level in range(2,len(domain_levels)+1):
-        domain = ".".join(domain_levels[-level:])
-
-        cached_result = attestation_result_cache.get(domain)
-        if cached_result == True:
-            return True
-        elif cached_result == False:
-            continue
-
-        if domain not in privacy_sandbox_domains:
-            attestation_result_cache[domain] = False
-            continue
-
-        try:
-            r = requests.get("https://{}/.well-known/privacy-sandbox-attestations.json".format(domain), timeout=timeout)
-        except:
-            # Connection error or invalid URL, suppose the domain is not valid
-            attestation_result_cache[domain] = False
-            continue
-
-        content_type = r.headers.get('content-type') or r.headers.get('Content-Type')
-        if r.status_code == 200 and content_type is not None and "application/json" in content_type:
-            # Document is a JSON object, check if it contains valid information
-            try:
-                attestation_json = r.json()
-            except requests.exceptions.JSONDecodeError:
-                attestation_result_cache[domain] = False
-                continue
-            
-            if valid_attestation_json(attestation_json, domain):
-                attestation_result_cache[domain] = True
-                return True
-    return False
-
-def valid_attestation_json(json, domain):
-    sandbox_attestations = json.get("privacy_sandbox_api_attestations")
-    if sandbox_attestations is None:
-        return False
-    for sandbox_attestation in sandbox_attestations:
-        expiry = sandbox_attestation.get("expiry_seconds_since_epoch")
-        if expiry is not None and expiry < time.time():
-            continue
-        enrollment_site = sandbox_attestation.get("enrollment_site")
-        if enrollment_site is None or get_domain(enrollment_site) != get_domain(domain, len(enrollment_site.strip(".").split("."))):
-            continue
-        platform_attestations = sandbox_attestation.get("platform_attestations")
-        for platform_attestation in platform_attestations:
-            platform = platform_attestation.get("platform")
-            if platform == "chrome":
-                topics_api_attestations = platform_attestation.get("attestations", {}).get("topics_api", {})
-                if topics_api_attestations.get("ServiceNotUsedForIdentifyingUserAcrossSites"):
-                    return True
-    return False
-
-def content_has_browsing_topics(url: str) -> bool:
-    try:
-        r = requests.get(url, timeout=timeout)
-    except:
-        # Connection error or invalid URL, suppose the script does not contain API calls
-        return False
-    
-    return r.status_code == 200 and "browsingTopics" in r.text or "browsingtopics" in r.text
-
-def get_privacy_sandbox_attested_domains():
-    with open(privacy_sandbox_attestations) as file:
-        file_content = file.read()
-    non_url_chars = re.compile("[\\x00-\\x2c\\x7B-\\x7F]+")
-    urls_unchecked = re.split(non_url_chars, file_content)
-    return [ get_domain(url) for url in urls_unchecked if is_url(url) ]
-
-def get_domain(url, level = None):
-    parse_result = urlparse(url)
-    domain = parse_result.netloc if len(parse_result.scheme) > 0 else parse_result.path
-    domain_levels = domain.strip(".").split(".")
-    level = len(domain_levels) if level is None else level
-    return '.'.join(domain_levels[-level:])
 
 def match_domains(domain, match):
     labels_domains = domain.strip(".").split(".")
     labels_match = match.strip(".").split(".")
     return labels_match == labels_domains[-len(labels_match):]
 
-def is_url(url):
-  try:
-    result = urlparse(url)
-    return all([result.scheme, result.netloc])
-  except ValueError:
-    return False
 
 def log(str):
     print(datetime.now().strftime("[%Y-%m-%d %H:%M:%S]"), str)
@@ -512,4 +383,3 @@ if __name__ == "__main__":
         traceback.print_exception(exc_type, exc_obj, exc_tb)
         log("Quitting")
         driver.quit()
-        
