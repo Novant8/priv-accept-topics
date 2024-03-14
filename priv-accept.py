@@ -109,7 +109,11 @@ def main():
 
     if detect_topics:
         global privacy_sandbox_domains
-        privacy_sandbox_domains = get_privacy_sandbox_attested_domains()
+        try:
+            privacy_sandbox_domains = get_privacy_sandbox_attested_domains()
+        except FileNotFoundError:
+            log("Privacy Sandbox attestation file not found. No pre-computed domains will be used.")
+            privacy_sandbox_domains = []
 
     # Set network conditions
     if network_conditions:
