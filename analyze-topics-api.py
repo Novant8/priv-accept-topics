@@ -64,38 +64,50 @@ def main():
 def get_topics_api_data(network_data):
     requests = network_data["requests"]
     responses = network_data["responses"]
-    responses_extra = network_data["responses-extra"]
+
+    # Map the Origin URL to the API usage object
+    topics_api_usages_map = { obj["context_origin_url"]: obj for obj in network_data["topics_api_usages"] }
 
     data = { "attested_domains": set(), "users": [] }
     for request in requests:
         url = request["documentURL"]
         domain = get_domain(url)
-        attested = False
         if attest_privacy_sandbox(domain):
             data["attested_domains"].add(domain)
-            attested = True
+
+        origin = get_origin(url)
+        topics_api_usage = topics_api_usages_map.get(origin)
+        if topics_api_usage is None:
+            continue
 
         headers = request["request"]["headers"]
-        if attested and ("sec-browsing-topics" in headers or "Sec-Browsing-Topics" in headers):
-            data["users"].append({ "url": url, "method": "header_request" })
+        if topics_api_usage["caller_source"] in ["fetch", "iframe"] and ("sec-browsing-topics" in headers or "Sec-Browsing-Topics" in headers):
+            topics_api_usage["possible_caller_url"] = topics_api_usage.get("possible_caller_url", [])
+            topics_api_usage["possible_caller_url"].append(url)
 
     for response in responses:
         url = response["response"]["url"]
         domain = get_domain(url)
-        attested = False
         if attest_privacy_sandbox(domain):
             data["attested_domains"].add(domain)
-            attested = True
             
+        origin = get_origin(url)
+        topics_api_usage = topics_api_usages_map.get(origin)
+        if topics_api_usage is None:
+            continue
+        
         headers = response["response"]["headers"]
-        if "observe-browsing-topics" in headers or "Observe-Browsing-Topics" in headers:
-            data["users"].append({ "url": url, "method": "header_response" })
+        if topics_api_usage["caller_source"] in ["fetch", "iframe"] and ("observe-browsing-topics" in headers or "Observe-Browsing-Topics" in headers):
+            topics_api_usage["possible_caller_url"] = topics_api_usage.get("possible_caller_url", [])
+            topics_api_usage["possible_caller_url"].append(url)
 
         content_type = headers.get("content-type") or headers.get("Content-Type")
-        if content_type is not None:
+        if topics_api_usage["caller_source"] == "javascript" and content_type is not None:
             if ('text/javascript' in content_type or "application/javascript" in content_type) and content_has_browsing_topics(url):
-                data["users"].append({ "url": url, "method": "javascript" })
+                topics_api_usage["possible_caller_url"] = topics_api_usage.get("possible_caller_url", [])
+                topics_api_usage["possible_caller_url"].append(url)
 
+    data["topics_api_usages"] = list(topics_api_usages_map.values())
     data["attested_domains"] = list(data["attested_domains"])
 
     return data
@@ -178,6 +190,10 @@ def content_has_browsing_topics(url: str) -> bool:
         return False
     
     return r.status_code == 200 and "browsingTopics" in r.text or "browsingtopics" in r.text
+
+def get_origin(url):
+    parse_result = urlparse(url)
+    return "{}://{}/".format(parse_result.scheme, parse_result.netloc)
 
 def get_domain(url, level = None):
     parse_result = urlparse(url)

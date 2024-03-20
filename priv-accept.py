@@ -15,12 +15,15 @@ import os
 import sys
 import json
 import time
+import sqlite3
+import shutil
 
 # Parse Vars
 parser = argparse.ArgumentParser()
 parser.add_argument('--url', type=str, default='https://www.theguardian.com/')
 parser.add_argument('--outfile', type=str, default='output.json')
 parser.add_argument('--accept_words', type=str, default="accept_words.txt")
+parser.add_argument('--chrome_binary', type=str, default=None)
 parser.add_argument('--chrome_driver', type=str, default="./chromedriver")
 parser.add_argument('--screenshot_dir', type=str, default=None)
 parser.add_argument('--lang', type=str, default=None)
@@ -66,7 +69,10 @@ def main():
     options = Options()
     stats["lang"] = "default"
     stats["headless"] = False
-    
+
+    if chrome_binary:
+        options.binary_location = chrome_binary
+
     if user_agent is not None:
         USER_AGENT_DEFAULT = user_agent
 
@@ -102,6 +108,13 @@ def main():
     service = Service(executable_path=chrome_driver, desired_capabilities=d)
     driver = webdriver.Chrome(service=service, options=options)
     time.sleep(timeout)
+
+    if detect_topics:
+        global user_data_dir
+        driver.get("chrome://version")
+        user_data_dir = "/".join(driver.find_element(By.ID, "profile_path").text.split("/")[:-1])
+        log("Changed user dir to {}".format(user_data_dir)) 
+        options.add_argument("user-data-dir={}".format(user_data_dir))
 
     # Set network conditions
     if network_conditions:
@@ -141,7 +154,7 @@ def main():
     time.sleep(timeout)
     stats["first-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
     log("Getting data of first visit")
-    before_data = get_data(driver)
+    before_data, last_usage_time = get_data(driver)
     make_screenshot("{}/all-first.png".format(screenshot_dir))
 
     # Click Banner
@@ -170,7 +183,7 @@ def main():
     stats["has-found-banner"] = "clicked_element" in banner_data
     time.sleep(timeout)
     log("Getting data of post-click")
-    click_data = get_data(driver)
+    click_data, last_usage_time = get_data(driver, after=last_usage_time)
     make_screenshot("{}/all-click.png".format(screenshot_dir))
     log("URL after click: {}".format(driver.current_url))
     stats["after-click-landing-page"] = driver.current_url
@@ -197,7 +210,7 @@ def main():
     time.sleep(timeout)
     stats["second-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
     log("Getting data of second visit")
-    after_data = get_data(driver)
+    after_data, last_usage_time = get_data(driver, after=last_usage_time)
     make_screenshot("{}/all-second.png".format(screenshot_dir))
 
     internal_data = None
@@ -223,7 +236,7 @@ def main():
             driver.get(internal_url)
             time.sleep(timeout/num_internal)
         log("Getting data of internal page visits")
-        internal_data = get_data(driver)    
+        internal_data = get_data(driver, after=last_usage_time)    
 
     # Save
     data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
@@ -249,7 +262,7 @@ def clear_status():
         log("Warning: cannot clean DNS and socket cache in headless mode.")
 
 
-def get_data(driver):
+def get_data(driver, after = 0):
 
     #data = {"urls": [],"cookies": driver.get_cookies()}  # Worse than next line
     if full_net_log:
@@ -275,7 +288,13 @@ def get_data(driver):
                 url = message["message"]["params"]["response"]["url"]
                 data["urls"].append(url)
 
-    return data
+    if detect_topics:
+        url = driver.current_url
+        data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
+    else:
+        last_usage_time = None
+        
+    return data, last_usage_time
 
 
 def make_screenshot(path):
@@ -361,6 +380,32 @@ def click_banner(driver):
 
     return banner_data
 
+def get_topics_api_usages(after = 0):
+    # Copy real DB (locked by current Chrome window) to temporary location
+    real_db_path = "{}/Default/BrowsingTopicsSiteData".format(user_data_dir)
+    tmp_db_path = "BrowsingTopicsSiteData"
+    shutil.copy(real_db_path, tmp_db_path)
+
+    # Fetch browsing topics data from temporary database
+    sql = "SELECT context_origin_url, caller_source, usage_time\
+           FROM browsing_topics_api_usages_complete, browsing_topics_api_hashed_to_unhashed_domain\
+           WHERE browsing_topics_api_usages_complete.hashed_context_domain = browsing_topics_api_hashed_to_unhashed_domain.hashed_context_domain\
+           AND usage_time > ?"
+    conn = sqlite3.connect(tmp_db_path, uri=True)
+    cur = conn.cursor()
+    res = cur.execute(sql, [after])
+    usages = []
+    last_usage_time = 0
+    for context_origin_url, caller_source, usage_time in res.fetchall():
+        if usage_time > last_usage_time:
+            last_usage_time = usage_time
+        usages.append({ "context_origin_url": context_origin_url, "caller_source": caller_source, "usage_time": usage_time })
+    conn.close()
+
+    # Delete temporary database
+    os.remove(tmp_db_path)
+
+    return usages, last_usage_time
 
 def match_domains(domain, match):
     labels_domains = domain.strip(".").split(".")
