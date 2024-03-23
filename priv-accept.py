@@ -115,6 +115,7 @@ def main():
         user_data_dir = "/".join(driver.find_element(By.ID, "profile_path").text.split("/")[:-1])
         log("Changed user dir to {}".format(user_data_dir)) 
         options.add_argument("user-data-dir={}".format(user_data_dir))
+        get_data(driver)
 
     # Set network conditions
     if network_conditions:
@@ -290,7 +291,10 @@ def get_data(driver, after = 0):
 
     if detect_topics:
         url = driver.current_url
-        data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
+        try:
+            data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
+        except FileNotFoundError:
+            pass
     else:
         last_usage_time = None
         
