@@ -68,12 +68,14 @@ def get_topics_api_data(network_data):
     # Map the Origin URL to the API usage object
     topics_api_usages_map = { obj["context_origin_url"]: obj for obj in network_data["topics_api_usages"] }
 
-    data = { "attested_domains": set(), "users": [] }
+    data = { "attestations": {} }
     for request in requests:
         url = request["documentURL"]
         domain = get_domain(url)
-        if attest_privacy_sandbox(domain):
-            data["attested_domains"].add(domain)
+        privacy_sandbox_attestation_result = get_privacy_sandbox_attestation_data(domain)
+        if privacy_sandbox_attestation_result:
+            attestation_domain = privacy_sandbox_attestation_result["domain"]
+            data["attestations"][attestation_domain] = privacy_sandbox_attestation_result
 
         origin = get_origin(url)
         topics_api_usage = topics_api_usages_map.get(origin)
@@ -82,14 +84,16 @@ def get_topics_api_data(network_data):
 
         headers = request["request"]["headers"]
         if topics_api_usage["caller_source"] in ["fetch", "iframe"] and ("sec-browsing-topics" in headers or "Sec-Browsing-Topics" in headers):
-            topics_api_usage["possible_caller_url"] = topics_api_usage.get("possible_caller_url", [])
-            topics_api_usage["possible_caller_url"].append(url)
+            topics_api_usage["possible_callers"] = topics_api_usage.get("possible_callers", [])
+            topics_api_usage["possible_callers"].append({ "url": url, "reason": "header-request" })
 
     for response in responses:
         url = response["response"]["url"]
         domain = get_domain(url)
-        if attest_privacy_sandbox(domain):
-            data["attested_domains"].add(domain)
+        privacy_sandbox_attestation_result = get_privacy_sandbox_attestation_data(domain)
+        if privacy_sandbox_attestation_result:
+            attestation_domain = privacy_sandbox_attestation_result["domain"]
+            data["attestations"][attestation_domain] = privacy_sandbox_attestation_result
             
         origin = get_origin(url)
         topics_api_usage = topics_api_usages_map.get(origin)
@@ -98,22 +102,26 @@ def get_topics_api_data(network_data):
         
         headers = response["response"]["headers"]
         if topics_api_usage["caller_source"] in ["fetch", "iframe"] and ("observe-browsing-topics" in headers or "Observe-Browsing-Topics" in headers):
-            topics_api_usage["possible_caller_url"] = topics_api_usage.get("possible_caller_url", [])
-            topics_api_usage["possible_caller_url"].append(url)
+            topics_api_usage["possible_callers"] = topics_api_usage.get("possible_callers", [])
+            topics_api_usage["possible_callers"].append({ "url": url, "reason": "header-response" })
 
         content_type = headers.get("content-type") or headers.get("Content-Type")
         if topics_api_usage["caller_source"] == "javascript" and content_type is not None:
             if ('text/javascript' in content_type or "application/javascript" in content_type) and content_has_browsing_topics(url):
-                topics_api_usage["possible_caller_url"] = topics_api_usage.get("possible_caller_url", [])
-                topics_api_usage["possible_caller_url"].append(url)
+                topics_api_usage["possible_callers"] = topics_api_usage.get("possible_callers", [])
+                topics_api_usage["possible_callers"].append({ "url": url, "reason": "browsingtopics-in-script" })
 
     data["topics_api_usages"] = list(topics_api_usages_map.values())
-    data["attested_domains"] = list(data["attested_domains"])
+    data["attestations"] = list(data["attestations"].values())
 
     return data
 
-def attest_privacy_sandbox(domain: str) -> bool:
+def get_privacy_sandbox_attestation_data(domain: str) -> dict | None:
     # This cache memorizes the result of previous operations, saving significant amounts of time
+    # For each domain:
+    # - If it contains a tuple (truthy value) => Cache hit, attestation successful
+    # - If it contains False => Cache miss, attestation not successful
+    # - If it contains None => Cache miss
     global attestation_result_cache
     try: attestation_result_cache
     except NameError: attestation_result_cache = {}
@@ -125,10 +133,10 @@ def attest_privacy_sandbox(domain: str) -> bool:
         domain = ".".join(domain_levels[-level:])
 
         cached_result = attestation_result_cache.get(domain)
-        if cached_result == True:
-            return True
-        elif cached_result == False:
+        if cached_result == False:
             continue
+        elif cached_result is not None:
+            return cached_result
 
         if len(privacy_sandbox_domains) > 0 and domain not in privacy_sandbox_domains:
             attestation_result_cache[domain] = False
@@ -150,30 +158,43 @@ def attest_privacy_sandbox(domain: str) -> bool:
                 attestation_result_cache[domain] = False
                 continue
             
-            if valid_attestation_json(attestation_json, domain):
-                attestation_result_cache[domain] = True
-                return True
-    return False
+            valid_sandbox_attestations = get_valid_sandbox_attestations(attestation_json)
+            if len(valid_sandbox_attestations) > 0:
+                sandbox_attestations_info = [
+                    {
+                        "issued": sandbox_attestation["issued_seconds_since_epoch"],
+                        "expired": sandbox_attestation.get("expiry_seconds_since_epoch")
+                    }
+                    for sandbox_attestation in valid_sandbox_attestations
+                ]
 
-def valid_attestation_json(json, domain):
+                attestation_result = { "domain": domain, "sandbox_attestations": sandbox_attestations_info }
+                attestation_result_cache[domain] =  attestation_result
+                return attestation_result
+    return None
+
+def get_valid_sandbox_attestations(json):
+    expired = True
+    valid_attestations = []
     sandbox_attestations = json.get("privacy_sandbox_api_attestations")
     if sandbox_attestations is None:
         return False
     for sandbox_attestation in sandbox_attestations:
         expiry = sandbox_attestation.get("expiry_seconds_since_epoch")
-        if expiry is not None and expiry < time.time():
-            continue
-        enrollment_site = sandbox_attestation.get("enrollment_site")
-        if enrollment_site is None or get_domain(enrollment_site) != get_domain(domain, len(enrollment_site.strip(".").split("."))):
-            continue
+        if expiry is None or expiry > time.time():
+            expired = False
         platform_attestations = sandbox_attestation.get("platform_attestations")
         for platform_attestation in platform_attestations:
             platform = platform_attestation.get("platform")
             if platform == "chrome":
                 topics_api_attestations = platform_attestation.get("attestations", {}).get("topics_api", {})
                 if topics_api_attestations.get("ServiceNotUsedForIdentifyingUserAcrossSites"):
-                    return True
-    return False
+                    valid_attestations.append(sandbox_attestation)
+
+    if not expired:
+        return valid_attestations
+    else:
+        return []
 
 def get_privacy_sandbox_attested_domains():
     with open(privacy_sandbox_attestations) as file:
