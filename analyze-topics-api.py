@@ -14,6 +14,7 @@ parser.add_argument('infile', type=str)
 parser.add_argument('--timeout', type=int, default=5)
 parser.add_argument('--privacy_sandbox_attestations', type=str, default='{}/.config/google-chrome/PrivacySandboxAttestationsPreloaded/2024.3.11.0/privacy-sandbox-attestations.dat'.format(os.path.expanduser('~')))
 parser.add_argument('--outfile', type=str, default='topics_output.json')
+parser.add_argument('--cache_server', type=str, default='http://localhost:8080')
 
 globals().update(vars(parser.parse_args()))
 
@@ -117,60 +118,60 @@ def get_topics_api_data(network_data):
     return data
 
 def get_privacy_sandbox_attestation_data(domain: str) -> dict | None:
-    # This cache memorizes the result of previous operations, saving significant amounts of time
-    # For each domain:
-    # - If it contains a tuple (truthy value) => Cache hit, attestation successful
-    # - If it contains False => Cache miss, attestation not successful
-    # - If it contains None => Cache miss
-    global attestation_result_cache
-    try: attestation_result_cache
-    except NameError: attestation_result_cache = {}
-
     domain_levels = domain.strip(".").split(".")
 
     # Check each domain (from level 2 to level N) for the existence of the sandbox attestation file
     for level in range(2,len(domain_levels)+1):
         domain = ".".join(domain_levels[-level:])
 
-        cached_result = attestation_result_cache.get(domain)
-        if cached_result == False:
-            continue
-        elif cached_result is not None:
-            return cached_result
+        cached_result = get_attestation_result_from_cache(domain)
+        if cached_result:
+            attested = cached_result["attested"]
+            cached_attestation_result = cached_result.get("attestation_result")
+            if attested:
+                return { "domain": domain, "sandbox_attestations": cached_attestation_result }
+            else:
+                continue
 
         if len(privacy_sandbox_domains) > 0 and domain not in privacy_sandbox_domains:
-            attestation_result_cache[domain] = False
+            save_attestation_result_to_cache(domain, None)
             continue
 
         try:
             r = requests.get("https://{}/.well-known/privacy-sandbox-attestations.json".format(domain), timeout=timeout)
         except:
             # Connection error or invalid URL, suppose the domain is not valid
-            attestation_result_cache[domain] = False
+            save_attestation_result_to_cache(domain, None)
             continue
 
         content_type = r.headers.get('content-type') or r.headers.get('Content-Type')
-        if r.status_code == 200 and content_type is not None and "application/json" in content_type:
-            # Document is a JSON object, check if it contains valid information
-            try:
-                attestation_json = r.json()
-            except requests.exceptions.JSONDecodeError:
-                attestation_result_cache[domain] = False
-                continue
-            
-            valid_sandbox_attestations = get_valid_sandbox_attestations(attestation_json)
-            if len(valid_sandbox_attestations) > 0:
-                sandbox_attestations_info = [
-                    {
-                        "issued": sandbox_attestation["issued_seconds_since_epoch"],
-                        "expired": sandbox_attestation.get("expiry_seconds_since_epoch")
-                    }
-                    for sandbox_attestation in valid_sandbox_attestations
-                ]
+        if r.status_code != 200 or content_type is None or "application/json" not in content_type:
+            save_attestation_result_to_cache(domain, None)
+            continue
+        
+        # Document is a JSON object, check if it contains valid information
+        try:
+            attestation_json = r.json()
+        except requests.exceptions.JSONDecodeError:
+            save_attestation_result_to_cache(domain, None)
+            continue
+        
+        valid_sandbox_attestations = get_valid_sandbox_attestations(attestation_json)
+        if len(valid_sandbox_attestations) == 0:
+            save_attestation_result_to_cache(domain, None)
+            continue
 
-                attestation_result = { "domain": domain, "sandbox_attestations": sandbox_attestations_info }
-                attestation_result_cache[domain] =  attestation_result
-                return attestation_result
+        sandbox_attestations_info = [
+            {
+                "issued": sandbox_attestation["issued_seconds_since_epoch"],
+                "expired": sandbox_attestation.get("expiry_seconds_since_epoch")
+            }
+            for sandbox_attestation in valid_sandbox_attestations
+        ]
+
+        save_attestation_result_to_cache(domain, sandbox_attestations_info)
+        attestation_result = { "domain": domain, "sandbox_attestations": sandbox_attestations_info }
+        return attestation_result
     return None
 
 def get_valid_sandbox_attestations(json):
@@ -211,6 +212,28 @@ def content_has_browsing_topics(url: str) -> bool:
         return False
     
     return r.status_code == 200 and "browsingTopics" in r.text or "browsingtopics" in r.text
+
+def get_attestation_result_from_cache(domain) -> dict:
+    try:
+        response = requests.get(cache_server, params={ "domain": domain })
+    except:
+        return None
+    
+    if response.status_code == 404:
+        return None
+    
+    return response.json()
+
+def save_attestation_result_to_cache(domain, result):
+    body = {
+            "domain": domain,
+            "attested": result is not None,
+            "attestation_result": result
+    }
+    try:
+        requests.post(cache_server, headers={ "content-type": "application/json" }, data=json.dumps(body))
+    except:
+        pass
 
 def get_origin(url):
     parse_result = urlparse(url)
