@@ -237,7 +237,7 @@ def main():
             driver.get(internal_url)
             time.sleep(timeout/num_internal)
         log("Getting data of internal page visits")
-        internal_data = get_data(driver, after=last_usage_time)    
+        internal_data, _ = get_data(driver, after=last_usage_time)
 
     # Save
     data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
@@ -295,7 +295,7 @@ def get_data(driver, after = 0):
         try:
             data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
         except FileNotFoundError:
-            pass
+            data["topics_api_usages"] = []
         
     return data, last_usage_time
 

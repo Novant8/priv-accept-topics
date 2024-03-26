@@ -179,7 +179,7 @@ def get_valid_sandbox_attestations(json):
     valid_attestations = []
     sandbox_attestations = json.get("privacy_sandbox_api_attestations")
     if sandbox_attestations is None:
-        return False
+        return []
     for sandbox_attestation in sandbox_attestations:
         expiry = sandbox_attestation.get("expiry_seconds_since_epoch")
         if expiry is None or expiry > time.time():
