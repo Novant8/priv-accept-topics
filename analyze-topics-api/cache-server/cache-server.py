@@ -5,6 +5,7 @@ import json
 import sqlite3
 import sys
 import traceback
+import signal
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--port', type=int, default=8080)
@@ -114,3 +115,11 @@ if __name__ == '__main__':
     finally:
         db_conn.commit()
         db_conn.close()
+
+def handle_sigterm(*args):
+    print("Stopped")
+    if db_conn:
+        db_conn.commit()
+        db_conn.close()
+
+signal.signal(signal.SIGTERM, handle_sigterm)
