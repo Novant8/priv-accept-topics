@@ -289,14 +289,13 @@ def get_data(driver, after = 0):
                 url = message["message"]["params"]["response"]["url"]
                 data["urls"].append(url)
 
+    last_usage_time = None
     if detect_topics:
         url = driver.current_url
         try:
             data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
         except FileNotFoundError:
             pass
-    else:
-        last_usage_time = None
         
     return data, last_usage_time
 
