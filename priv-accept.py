@@ -22,6 +22,7 @@ import shutil
 parser = argparse.ArgumentParser()
 parser.add_argument('--url', type=str, default='https://www.theguardian.com/')
 parser.add_argument('--outfile', type=str, default='output.json')
+parser.add_argument('--pretty_print', action='store_true')
 parser.add_argument('--accept_words', type=str, default="accept_words.txt")
 parser.add_argument('--chrome_binary', type=str, default=None)
 parser.add_argument('--chrome_driver', type=str, default="./chromedriver")
@@ -242,7 +243,7 @@ def main():
     # Save
     data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
             "log": log_entries, "stats": stats, "internal":internal_data}
-    json.dump(data, open(outfile, "w"), indent=4)
+    json.dump(data, open(outfile, "w"), indent=4 if pretty_print else None)
 
     # Quit
     if xvfb:

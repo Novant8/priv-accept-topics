@@ -14,6 +14,7 @@ parser.add_argument('infile', type=str)
 parser.add_argument('--timeout', type=int, default=5)
 parser.add_argument('--privacy_sandbox_attestations', type=str, default='{}/.config/google-chrome/PrivacySandboxAttestationsPreloaded/2024.3.11.0/privacy-sandbox-attestations.dat'.format(os.path.expanduser('~')))
 parser.add_argument('--outfile', type=str, default='topics_output.json')
+parser.add_argument('--pretty_print', action='store_true')
 parser.add_argument('--cache_server', type=str, default='http://localhost:8080')
 
 globals().update(vars(parser.parse_args()))
@@ -57,7 +58,7 @@ def main():
         log("Analyzing internal page visits data")
         data["internal"] = get_topics_api_data(internal_visits_data)
 
-    json.dump(data, open(outfile, "w"), indent=4)
+    json.dump(data, open(outfile, "w"), indent=4 if pretty_print else None)
 
     data["log_entries"] = log_entries
     log("All Done")
