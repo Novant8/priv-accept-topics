@@ -4,7 +4,7 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchFrameException
+from selenium.common.exceptions import NoSuchFrameException, TimeoutException
 import argparse
 from urllib.parse import urlparse
 from datetime import datetime
@@ -29,6 +29,7 @@ parser.add_argument('--chrome_driver', type=str, default="./chromedriver")
 parser.add_argument('--screenshot_dir', type=str, default=None)
 parser.add_argument('--lang', type=str, default=None)
 parser.add_argument('--timeout', type=int, default=5)
+parser.add_argument('--connection_timeout', type=int, default=60)
 parser.add_argument('--clear_cache', action='store_true')
 parser.add_argument('--headless', action='store_true')
 parser.add_argument('--docker', action='store_true')
@@ -108,6 +109,7 @@ def main():
 
     service = Service(executable_path=chrome_driver, desired_capabilities=d)
     driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(connection_timeout)
     time.sleep(timeout)
 
     if detect_topics:
@@ -235,7 +237,10 @@ def main():
             
         for internal_url in internal_urls_to_visit:
             log("Visiting internal URL: {}".format(internal_url ))
-            driver.get(internal_url)
+            try:
+                driver.get(internal_url)
+            except TimeoutException:
+                log("Warning, could not load URL {} before timeout.".format(internal_url))
             time.sleep(timeout/num_internal)
         log("Getting data of internal page visits")
         internal_data, _ = get_data(driver, after=last_usage_time)
@@ -292,7 +297,6 @@ def get_data(driver, after = 0):
 
     last_usage_time = None
     if detect_topics:
-        url = driver.current_url
         try:
             data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
         except FileNotFoundError:
