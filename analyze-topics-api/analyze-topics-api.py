@@ -8,6 +8,7 @@ import sys
 import os
 import re
 from urllib.parse import urlparse
+import psycopg2
 
 parser = argparse.ArgumentParser()
 parser.add_argument('infile', type=str)
@@ -15,9 +16,15 @@ parser.add_argument('--timeout', type=int, default=5)
 parser.add_argument('--privacy_sandbox_attestations', type=str, default='{}/.config/google-chrome/PrivacySandboxAttestationsPreloaded/2024.3.11.0/privacy-sandbox-attestations.dat'.format(os.path.expanduser('~')))
 parser.add_argument('--outfile', type=str, default='topics_output.json')
 parser.add_argument('--pretty_print', action='store_true')
-parser.add_argument('--cache_server', type=str, default='http://localhost:8080')
+parser.add_argument('--cache_db_host', type=str, default='localhost')
+parser.add_argument('--cache_db_port', type=str, default='5432')
+parser.add_argument('--cache_db_name', type=str, default='analyze_topics_cache')
+parser.add_argument('--cache_db_user', type=str, default='docker')
+parser.add_argument('--cache_db_password', type=str, default='docker')
 
 globals().update(vars(parser.parse_args()))
+
+db_conn = psycopg2.connect(host=cache_db_host, port=cache_db_port, dbname=cache_db_name, user=cache_db_user, password=cache_db_password)
 
 log_entries = []
 
@@ -156,8 +163,11 @@ def get_privacy_sandbox_attestation_data(domain: str) -> dict | None:
         except requests.exceptions.JSONDecodeError:
             save_attestation_result_to_cache(domain, None)
             continue
+        try:
+            valid_sandbox_attestations = get_valid_sandbox_attestations(attestation_json)
+        except:
+            continue
         
-        valid_sandbox_attestations = get_valid_sandbox_attestations(attestation_json)
         if len(valid_sandbox_attestations) == 0:
             save_attestation_result_to_cache(domain, None)
             continue
@@ -216,24 +226,33 @@ def content_has_browsing_topics(url: str) -> bool:
 
 def get_attestation_result_from_cache(domain) -> dict:
     try:
-        response = requests.get(cache_server, params={ "domain": domain })
-    except:
+        sql = """
+            SELECT attested, attestation_result
+            FROM cache
+            WHERE domain = %s;
+        """
+        cur = db_conn.cursor()
+        cur.execute(sql, (domain,))
+        result = cur.fetchone()
+        if result is None:
+            return None
+        attested, attestation_result = result
+        return { "attested": attested is not None, "attestation_result": attestation_result }
+    except psycopg2.Error:
+        # Connection error or invalid URL, suppose the script does not contain API calls
         return None
-    
-    if response.status_code == 404:
-        return None
-    
-    return response.json()
 
 def save_attestation_result_to_cache(domain, result):
-    body = {
-            "domain": domain,
-            "attested": result is not None,
-            "attestation_result": result
-    }
     try:
-        requests.post(cache_server, headers={ "content-type": "application/json" }, data=json.dumps(body))
-    except:
+        sql =  """
+            INSERT INTO cache(domain, attested, attestation_result)
+            VALUES(%s,%s,%s)
+            ON CONFLICT DO NOTHING;
+        """
+        cur = db_conn.cursor()
+        cur.execute(sql, (domain, result is not None, result))
+        db_conn.commit()
+    except psycopg2.Error:
         pass
 
 def get_origin(url):
@@ -262,7 +281,10 @@ if __name__ == "__main__":
 
     try:
         main()
+        db_conn.close()
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log("Exception at line {}: {}".format(exc_tb.tb_lineno, e))
         traceback.print_exception(exc_type, exc_obj, exc_tb)
+        db_conn.close()
+        exit(1)
