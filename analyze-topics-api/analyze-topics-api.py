@@ -237,7 +237,7 @@ def get_attestation_result_from_cache(domain) -> dict:
         if result is None:
             return None
         attested, attestation_result = result
-        return { "attested": attested is not None, "attestation_result": attestation_result }
+        return { "attested": attested, "attestation_result": attestation_result }
     except psycopg2.Error:
         # Connection error or invalid URL, suppose the script does not contain API calls
         return None
@@ -250,7 +250,7 @@ def save_attestation_result_to_cache(domain, result):
             ON CONFLICT DO NOTHING;
         """
         cur = db_conn.cursor()
-        cur.execute(sql, (domain, result is not None, result))
+        cur.execute(sql, (domain, result is not None, json.dumps(result)))
         db_conn.commit()
     except psycopg2.Error:
         pass
