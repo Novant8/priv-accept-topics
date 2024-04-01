@@ -217,6 +217,12 @@ def main():
     after_data, last_usage_time = get_data(driver, after=last_usage_time)
     make_screenshot("{}/all-second.png".format(screenshot_dir))
 
+    # Save data
+    data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
+            "log": log_entries, "stats": stats, "internal": None}
+    with open(outfile, "w") as file:
+        json.dump(data, file, indent=4 if pretty_print else None)
+
     internal_data = None
     if visit_internals:
         log("Visiting Internal Pages")
@@ -239,16 +245,17 @@ def main():
             log("Visiting internal URL: {}".format(internal_url ))
             try:
                 driver.get(internal_url)
+                time.sleep(timeout)
             except TimeoutException:
                 log("Warning, could not load URL {} before timeout.".format(internal_url))
-            time.sleep(timeout/num_internal)
         log("Getting data of internal page visits")
         internal_data, _ = get_data(driver, after=last_usage_time)
 
     # Save
     data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
             "log": log_entries, "stats": stats, "internal":internal_data}
-    json.dump(data, open(outfile, "w"), indent=4 if pretty_print else None)
+    with open(outfile, "w") as file:
+        json.dump(data, file, indent=4 if pretty_print else None)
 
     # Quit
     if xvfb:
@@ -436,3 +443,4 @@ if __name__ == "__main__":
         traceback.print_exception(exc_type, exc_obj, exc_tb)
         log("Quitting")
         driver.quit()
+        exit(1)
