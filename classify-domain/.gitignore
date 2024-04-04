@@ -1,0 +1,9 @@
+*.pb
+*.pb.gz
+*.tflite
+*_pb2.py
+*.proto
+
+topic_mapping.json
+
+__pycache__
