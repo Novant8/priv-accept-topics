@@ -64,6 +64,10 @@ def main():
     if internal_visits_data is not None:
         log("Analyzing internal page visits data")
         data["internal"] = get_topics_api_data(internal_visits_data)
+    
+    # Save whether accept button has been clicked
+    clicked_element = input_json.get("banner_data", {}).get("clicked_element")
+    data["banner_clicked"] = clicked_element is not None
 
     json.dump(data, open(outfile, "w"), indent=4 if pretty_print else None)
 
