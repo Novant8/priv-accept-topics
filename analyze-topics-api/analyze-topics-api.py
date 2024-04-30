@@ -24,9 +24,17 @@ parser.add_argument('--cache_db_password', type=str, default='docker')
 
 globals().update(vars(parser.parse_args()))
 
-db_conn = psycopg2.connect(host=cache_db_host, port=cache_db_port, dbname=cache_db_name, user=cache_db_user, password=cache_db_password)
-
 log_entries = []
+
+def log(str):
+    print(datetime.now().strftime("[%Y-%m-%d %H:%M:%S]"), str)
+    log_entries.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str))
+
+try:
+    db_conn = psycopg2.connect(host=cache_db_host, port=cache_db_port, dbname=cache_db_name, user=cache_db_user, password=cache_db_password)
+except psycopg2.OperationalError:
+    log("Connection to cache database failed, cache will not be used")
+    db_conn = None
 
 def main():
     input_json = json.load(open(infile))
@@ -213,6 +221,8 @@ def get_valid_sandbox_attestations(json):
         return []
 
 def get_privacy_sandbox_attested_domains():
+    if db_conn is None:
+        return []
     with open(privacy_sandbox_attestations) as file:
         file_content = file.read()
     non_url_chars = re.compile("[\\x00-\\x2c\\x7B-\\x7F]+")
@@ -229,6 +239,8 @@ def content_has_browsing_topics(url: str) -> bool:
     return r.status_code == 200 and "browsingTopics" in r.text or "browsingtopics" in r.text
 
 def get_attestation_result_from_cache(domain) -> dict:
+    if db_conn is None:
+        return None
     try:
         sql = """
             SELECT attested, attestation_result
@@ -243,10 +255,12 @@ def get_attestation_result_from_cache(domain) -> dict:
         attested, attestation_result = result
         return { "attested": attested, "attestation_result": attestation_result }
     except psycopg2.Error:
-        # Connection error or invalid URL, suppose the script does not contain API calls
+        # Connection error or invalid URL, suppose the website is not attested
         return None
 
 def save_attestation_result_to_cache(domain, result):
+    if db_conn is None:
+        return
     try:
         sql =  """
             INSERT INTO cache(domain, attested, attestation_result)
@@ -277,18 +291,16 @@ def is_url(url):
   except ValueError:
     return False
 
-def log(str):
-    print(datetime.now().strftime("[%Y-%m-%d %H:%M:%S]"), str)
-    log_entries.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), str))
-
 if __name__ == "__main__":
 
     try:
         main()
-        db_conn.close()
+        if db_conn is not None:
+            db_conn.close()
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log("Exception at line {}: {}".format(exc_tb.tb_lineno, e))
         traceback.print_exception(exc_type, exc_obj, exc_tb)
-        db_conn.close()
+        if db_conn is not None:
+            db_conn.close()
         exit(1)
