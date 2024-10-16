@@ -1,0 +1,343 @@
+diff --git a/components/browsing_topics/browsing_topics_page_load_data_tracker.cc b/components/browsing_topics/browsing_topics_page_load_data_tracker.cc
+index 4b0e015f8334a..98794aef1e8f5 100644
+--- a/components/browsing_topics/browsing_topics_page_load_data_tracker.cc
++++ b/components/browsing_topics/browsing_topics_page_load_data_tracker.cc
+@@ -69,8 +69,11 @@ BrowsingTopicsPageLoadDataTracker::BrowsingTopicsPageLoadDataTracker(
+ }
+ 
+ void BrowsingTopicsPageLoadDataTracker::OnBrowsingTopicsApiUsed(
++    const std::string& caller_source,
++    const std::string& context_origin_url,
+     const HashedDomain& hashed_context_domain,
+     const std::string& context_domain,
++    const std::vector<int64_t>& topics,
+     history::HistoryService* history_service) {
+   if (!eligible_to_commit_)
+     return;
+@@ -123,8 +126,9 @@ void BrowsingTopicsPageLoadDataTracker::OnBrowsingTopicsApiUsed(
+       .GetBrowserContext()
+       ->GetDefaultStoragePartition()
+       ->GetBrowsingTopicsSiteDataManager()
+-      ->OnBrowsingTopicsApiUsed(hashed_main_frame_host_, hashed_context_domain,
+-                                context_domain, base::Time::Now());
++      ->OnBrowsingTopicsApiUsed(hashed_main_frame_host_, caller_source,
++                                context_origin_url, hashed_context_domain,
++                                context_domain, topics, base::Time::Now());
+ }
+ 
+ PAGE_USER_DATA_KEY_IMPL(BrowsingTopicsPageLoadDataTracker);
+diff --git a/components/browsing_topics/browsing_topics_page_load_data_tracker.h b/components/browsing_topics/browsing_topics_page_load_data_tracker.h
+index bfad252c9026e..4c18a06b34bcf 100644
+--- a/components/browsing_topics/browsing_topics_page_load_data_tracker.h
++++ b/components/browsing_topics/browsing_topics_page_load_data_tracker.h
+@@ -29,8 +29,11 @@ class BrowsingTopicsPageLoadDataTracker
+   ~BrowsingTopicsPageLoadDataTracker() override;
+ 
+   // Called when the document.browsingTopics() API is used in the page.
+-  void OnBrowsingTopicsApiUsed(const HashedDomain& hashed_context_domain,
++  void OnBrowsingTopicsApiUsed(const std::string& caller_source,
++                               const std::string& context_origin_url,
++                               const HashedDomain& hashed_context_domain,
+                                const std::string& context_domain,
++                               const std::vector<int64_t>& topics,
+                                history::HistoryService* history_service);
+ 
+  private:
+diff --git a/components/browsing_topics/browsing_topics_service_impl.cc b/components/browsing_topics/browsing_topics_service_impl.cc
+index 71b0f0747a5e6..1c32dc0e90a8a 100644
+--- a/components/browsing_topics/browsing_topics_service_impl.cc
++++ b/components/browsing_topics/browsing_topics_service_impl.cc
+@@ -393,6 +393,24 @@ bool BrowsingTopicsServiceImpl::HandleTopicsWebApi(
+   RecordBrowsingTopicsApiResultMetrics(ApiAccessResult::kSuccess, main_frame,
+                                        get_topics);
+ 
++  std::string context_origin_url = context_origin.GetURL().spec();
++  
++  std::string caller_source_str;
++  switch(caller_source) {
++    case ApiCallerSource::kJavaScript:
++      caller_source_str = "javascript";
++      break;
++    case ApiCallerSource::kFetch:
++      caller_source_str = "fetch";
++      break;
++    case ApiCallerSource::kIframeAttribute:
++      caller_source_str = "iframe";
++      break;
++    default:
++      caller_source_str = "invalid";
++      break;
++  }
++
+   std::string context_domain =
+       net::registry_controlled_domains::GetDomainAndRegistry(
+           context_origin.GetURL(),
+@@ -401,14 +419,16 @@ bool BrowsingTopicsServiceImpl::HandleTopicsWebApi(
+   HashedDomain hashed_context_domain = HashContextDomainForStorage(
+       browsing_topics_state_.hmac_key(), context_domain);
+ 
+-  if (observe) {
+-    // Track the API usage context after the permissions check.
+-    BrowsingTopicsPageLoadDataTracker::GetOrCreateForPage(main_frame->GetPage())
+-        ->OnBrowsingTopicsApiUsed(hashed_context_domain, context_domain,
+-                                  history_service_);
+-  }
++  std::vector<int64_t> topics_ints;
+ 
+   if (!get_topics) {
++    if (observe) {
++      // Track the API usage context after the permissions check.
++      BrowsingTopicsPageLoadDataTracker::GetOrCreateForPage(main_frame->GetPage())
++          ->OnBrowsingTopicsApiUsed(caller_source_str, context_origin_url,
++                                    hashed_context_domain, context_domain,
++                                    topics_ints, history_service_);
++    }
+     return true;
+   }
+ 
+@@ -488,6 +508,18 @@ bool BrowsingTopicsServiceImpl::HandleTopicsWebApi(
+   // Remove duplicate entries.
+   topics.erase(std::unique(topics.begin(), topics.end()), topics.end());
+ 
++  for (const blink::mojom::EpochTopicPtr& epoch_topic : topics) {
++    topics_ints.emplace_back(epoch_topic->topic);
++  }
++  
++  if (observe) {
++    // Track the API usage context after the permissions check.
++    BrowsingTopicsPageLoadDataTracker::GetOrCreateForPage(main_frame->GetPage())
++        ->OnBrowsingTopicsApiUsed(caller_source_str, context_origin_url,
++                                  hashed_context_domain, context_domain,
++                                  topics_ints, history_service_);
++  }
++
+   return true;
+ }
+ 
+diff --git a/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.cc b/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.cc
+index a3ff0ade0d7de..6c03d4775a3cb 100644
+--- a/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.cc
++++ b/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.cc
+@@ -60,12 +60,15 @@ void BrowsingTopicsSiteDataManagerImpl::GetBrowsingTopicsApiUsage(
+ 
+ void BrowsingTopicsSiteDataManagerImpl::OnBrowsingTopicsApiUsed(
+     const browsing_topics::HashedHost& hashed_main_frame_host,
++    const std::string& caller_source,
++    const std::string& context_origin_url,
+     const browsing_topics::HashedDomain& hashed_context_domain,
+     const std::string& context_domain,
++    const std::vector<int64_t>& topics,
+     base::Time time) {
+   storage_.AsyncCall(&BrowsingTopicsSiteDataStorage::OnBrowsingTopicsApiUsed)
+-      .WithArgs(hashed_main_frame_host, hashed_context_domain, context_domain,
+-                time);
++      .WithArgs(hashed_main_frame_host, caller_source, context_origin_url,
++                hashed_context_domain, context_domain, topics, time);
+ }
+ 
+ void BrowsingTopicsSiteDataManagerImpl::
+diff --git a/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.h b/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.h
+index d89ec4d477e85..5536c2b735226 100644
+--- a/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.h
++++ b/content/browser/browsing_topics/browsing_topics_site_data_manager_impl.h
+@@ -43,8 +43,11 @@ class CONTENT_EXPORT BrowsingTopicsSiteDataManagerImpl
+ 
+   void OnBrowsingTopicsApiUsed(
+       const browsing_topics::HashedHost& hashed_main_frame_host,
++      const std::string& caller_source,
++      const std::string& context_origin_url,
+       const browsing_topics::HashedDomain& hashed_context_domain,
+       const std::string& context_domain,
++      const std::vector<int64_t>& topics,
+       base::Time time) override;
+ 
+   void GetContextDomainsFromHashedContextDomains(
+diff --git a/content/browser/browsing_topics/browsing_topics_site_data_storage.cc b/content/browser/browsing_topics/browsing_topics_site_data_storage.cc
+index 5783ab7b95986..edf4d2be65151 100644
+--- a/content/browser/browsing_topics/browsing_topics_site_data_storage.cc
++++ b/content/browser/browsing_topics/browsing_topics_site_data_storage.cc
+@@ -58,8 +58,8 @@ void BrowsingTopicsSiteDataStorage::ExpireDataBefore(base::Time end_time) {
+ 
+   static constexpr char kDeleteApiUsageSql[] =
+       // clang-format off
+-      "DELETE FROM browsing_topics_api_usages "
+-          "WHERE last_usage_time < ?";
++      "DELETE FROM browsing_topics_api_usages_complete "
++          "WHERE usage_time < ?";
+   // clang-format on
+ 
+   sql::Statement delete_api_usage_statement(
+@@ -72,7 +72,7 @@ void BrowsingTopicsSiteDataStorage::ExpireDataBefore(base::Time end_time) {
+       "DELETE FROM browsing_topics_api_hashed_to_unhashed_domain "
+           "WHERE hashed_context_domain NOT IN ("
+               "SELECT DISTINCT hashed_context_domain "
+-              "FROM browsing_topics_api_usages "
++              "FROM browsing_topics_api_usages_complete "
+           ")";
+   // clang-format on
+   sql::Statement delete_unused_domains_sql(
+@@ -96,7 +96,7 @@ void BrowsingTopicsSiteDataStorage::ClearContextDomain(
+ 
+   static constexpr char kDeleteContextDomainSql[] =
+       // clang-format off
+-      "DELETE FROM browsing_topics_api_usages "
++      "DELETE FROM browsing_topics_api_usages_complete "
+           "WHERE hashed_context_domain = ?";
+   // clang-format on
+ 
+@@ -131,9 +131,10 @@ BrowsingTopicsSiteDataStorage::GetBrowsingTopicsApiUsage(base::Time begin_time,
+ 
+   static constexpr char kGetApiUsageSql[] =
+       // clang-format off
+-      "SELECT hashed_context_domain,hashed_main_frame_host,last_usage_time "
+-          "FROM browsing_topics_api_usages "
+-          "WHERE last_usage_time>=? AND last_usage_time<? "
++      "SELECT hashed_context_domain,hashed_main_frame_host,MAX(usage_time) AS last_usage_time "
++          "FROM browsing_topics_api_usages_complete "
++          "WHERE usage_time>=? AND usage_time<? "
++          "GROUP BY hashed_context_domain, hashed_main_frame_host "
+           "ORDER BY last_usage_time DESC "
+           "LIMIT ?";
+   // clang-format on
+@@ -168,8 +169,11 @@ BrowsingTopicsSiteDataStorage::GetBrowsingTopicsApiUsage(base::Time begin_time,
+ 
+ void BrowsingTopicsSiteDataStorage::OnBrowsingTopicsApiUsed(
+     const browsing_topics::HashedHost& hashed_main_frame_host,
++    const std::string& caller_source,
++    const std::string& context_origin_url,
+     const browsing_topics::HashedDomain& hashed_context_domain,
+     const std::string& context_domain,
++    const std::vector<int64_t>& topics,
+     base::Time time) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+ 
+@@ -182,9 +186,10 @@ void BrowsingTopicsSiteDataStorage::OnBrowsingTopicsApiUsed(
+ 
+   static constexpr char kInsertApiUsageSql[] =
+       // clang-format off
+-      "INSERT OR REPLACE INTO browsing_topics_api_usages "
+-          "(hashed_context_domain,hashed_main_frame_host,last_usage_time) "
+-          "VALUES (?,?,?)";
++      "INSERT OR REPLACE INTO browsing_topics_api_usages_complete "
++          "(hashed_context_domain,hashed_main_frame_host,usage_time,"
++          "context_origin_url,caller_source) "
++          "VALUES (?,?,?,?,?)";
+   // clang-format on
+ 
+   sql::Statement insert_api_usage_statement(
+@@ -192,15 +197,36 @@ void BrowsingTopicsSiteDataStorage::OnBrowsingTopicsApiUsed(
+   insert_api_usage_statement.BindInt64(0, hashed_context_domain.value());
+   insert_api_usage_statement.BindInt64(1, hashed_main_frame_host.value());
+   insert_api_usage_statement.BindTime(2, time);
++  insert_api_usage_statement.BindString(3, context_origin_url);
++  insert_api_usage_statement.BindString(4, caller_source);
+ 
+   if (!insert_api_usage_statement.Run()) {
+     return;
+   }
+ 
++  int64_t usage_id = db_->GetLastInsertRowId();
++
++  static constexpr char kInsertApiTopicUsageSql[] =
++      // clang-format off
++      "INSERT OR REPLACE INTO browsing_topics_api_usages_topics "
++          "(usage_id,topic_id) "
++          "VALUES (?,?)";
++          
++  for (const int64_t topic_id : topics) {
++    sql::Statement insert_api_usage_topic_statement(
++        db_->GetCachedStatement(SQL_FROM_HERE, kInsertApiTopicUsageSql));
++    insert_api_usage_topic_statement.BindInt64(0, usage_id);
++    insert_api_usage_topic_statement.BindInt64(1, topic_id);
++
++    if (!insert_api_usage_topic_statement.Run()) {
++      return;
++    }
++  }
++  
+   static constexpr char kInsertUnhashedDomainSql[] =
+       // clang-format off
+-      "INSERT OR REPLACE INTO browsing_topics_api_hashed_to_unhashed_domain "
+-          "(hashed_context_domain,context_domain) "
++      "INSERT OR REPLACE INTO browsing_topics_api_hashed_to_unhashed_domain("
++          "hashed_context_domain,context_domain) "
+           "VALUES (?,?)";
+   // clang-format on
+   sql::Statement insert_unhashed_domain_statement(
+@@ -307,23 +333,35 @@ bool BrowsingTopicsSiteDataStorage::InitializeTables() {
+ }
+ 
+ bool BrowsingTopicsSiteDataStorage::CreateSchema() {
+-  static constexpr char kBrowsingTopicsApiUsagesTableSql[] =
++  static constexpr char kBrowsingTopicsApiUsagesCompleteTableSql[] =
+       // clang-format off
+-      "CREATE TABLE IF NOT EXISTS browsing_topics_api_usages("
++      "CREATE TABLE IF NOT EXISTS browsing_topics_api_usages_complete("
++          "usage_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+           "hashed_context_domain INTEGER NOT NULL,"
++          "context_origin_url TEXT NOT NULL,"
+           "hashed_main_frame_host INTEGER NOT NULL,"
+-          "last_usage_time INTEGER NOT NULL,"
+-          "PRIMARY KEY (hashed_context_domain,hashed_main_frame_host))";
++          "caller_source TEXT NOT NULL,"
++          "usage_time INTEGER NOT NULL)";
++  // clang-format on
++  if (!db_->Execute(kBrowsingTopicsApiUsagesCompleteTableSql))
++    return false;
++  
++  static constexpr char kUsageTimeIndexSql[] =
++      // clang-format off
++      "CREATE INDEX IF NOT EXISTS usage_time_idx "
++          "ON browsing_topics_api_usages_complete(usage_time)";
+   // clang-format on
+-  if (!db_->Execute(kBrowsingTopicsApiUsagesTableSql))
++  if (!db_->Execute(kUsageTimeIndexSql))
+     return false;
+ 
+-  static constexpr char kLastUsageTimeIndexSql[] =
++  static constexpr char kBrowsingTopicsApiUsagesTopicsTableSql[] =
+       // clang-format off
+-      "CREATE INDEX IF NOT EXISTS last_usage_time_idx "
+-          "ON browsing_topics_api_usages(last_usage_time)";
++      "CREATE TABLE IF NOT EXISTS browsing_topics_api_usages_topics("
++          "usage_id INTEGER NOT NULL,"
++          "topic_id TEXT NOT NULL,"
++          "PRIMARY KEY (usage_id,topic_id))";
+   // clang-format on
+-  if (!db_->Execute(kLastUsageTimeIndexSql))
++  if (!db_->Execute(kBrowsingTopicsApiUsagesTopicsTableSql))
+     return false;
+ 
+   static constexpr char kHashedToUnhashedDomainSql[] =
+diff --git a/content/browser/browsing_topics/browsing_topics_site_data_storage.h b/content/browser/browsing_topics/browsing_topics_site_data_storage.h
+index a3e46ef129c12..344f180711146 100644
+--- a/content/browser/browsing_topics/browsing_topics_site_data_storage.h
++++ b/content/browser/browsing_topics/browsing_topics_site_data_storage.h
+@@ -74,8 +74,11 @@ class CONTENT_EXPORT BrowsingTopicsSiteDataStorage {
+   // usage is detected in a context on a page.
+   void OnBrowsingTopicsApiUsed(
+       const browsing_topics::HashedHost& hashed_main_frame_host,
++      const std::string& caller_source,
++      const std::string& context_origin_url,
+       const browsing_topics::HashedDomain& hashed_context_domain,
+       const std::string& context_domain,
++      const std::vector<int64_t>& topics,
+       base::Time time);
+ 
+  private:
+diff --git a/content/public/browser/browsing_topics_site_data_manager.h b/content/public/browser/browsing_topics_site_data_manager.h
+index 4f8490caaf68d..3dacaccecb914 100644
+--- a/content/public/browser/browsing_topics_site_data_manager.h
++++ b/content/public/browser/browsing_topics_site_data_manager.h
+@@ -51,8 +51,11 @@ class CONTENT_EXPORT BrowsingTopicsSiteDataManager {
+   // usage is detected in a context on a page.
+   virtual void OnBrowsingTopicsApiUsed(
+       const browsing_topics::HashedHost& hashed_main_frame_host,
++      const std::string& caller_source,
++      const std::string& context_origin_url,
+       const browsing_topics::HashedDomain& hashed_context_domain,
+       const std::string& context_domain,
++      const std::vector<int64_t>& topics,
+       base::Time time) = 0;
+ 
+   // For each hashed context domain, get the stored unhashed version. Only
