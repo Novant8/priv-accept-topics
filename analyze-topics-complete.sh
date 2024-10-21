@@ -1,7 +1,7 @@
 #!/bin/bash
 
 TODAY=$(date +%Y%m%d) # YYYYMMDD
-WORKING_FOLDER="/home/$USER/priv-accept-topics"
+WORKING_FOLDER="/home/$USER/priv-accept-topics/analyze-topics-api"
 OUTPUTS_FOLDER="$WORKING_FOLDER/outputs-$TODAY"
 FINAL_OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 CHROME_CONFIG_FOLDER="/home/$USER/.config/google-chrome"
