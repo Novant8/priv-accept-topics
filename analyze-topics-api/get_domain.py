@@ -39,3 +39,16 @@ def getFullDomain(url) -> str:
     domain_levels = domain.strip(".").split(".")
     level = len(domain_levels)
     return '.'.join(domain_levels[-level:])
+
+def getDomainOfLevel(url: str, level: int):
+    fqdn = getFullDomain(url)
+    if len(fqdn) == 0:
+        return None
+    if fqdn[-1] == ".":
+        fqdn = fqdn[:-1]
+    names = fqdn.split(".")
+    tln_array = names[-level:]
+    tln = ""
+    for s in tln_array:
+        tln = tln + "." + s
+    return tln[1:]

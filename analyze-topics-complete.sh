@@ -85,13 +85,13 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
 fi
 
 # Run analyze-topics
-ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --resume --joblog $OUTPUTS_FOLDER/analyze-topics.log "python3 $WORKING_FOLDER/analyze-topics-api.py $OUTPUTS_FOLDER/priv-accept/{} --attested_domains_file $OUTPUTS_FOLDER/attested_domains.csv --allowed_domains_file $OUTPUTS_FOLDER/allowed_domains.txt --outfile $OUTPUTS_FOLDER/analyze-topics/{}"
+ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --resume --joblog $OUTPUTS_FOLDER/analyze-topics.log "python3 $WORKING_FOLDER/analyze-topics-api.py $OUTPUTS_FOLDER/priv-accept/{} --attested_domains_file $OUTPUTS_FOLDER/attested_domains.csv --allowed_domains_file $OUTPUTS_FOLDER/allowed_domains.txt --consent_managers_file $WORKING_FOLDER/consent-managers.txt --outfile $OUTPUTS_FOLDER/analyze-topics/{}"
 
 if [ ! -f "$OUTPUTS_FOLDER/analyze-topics-output.csv" ]; then
     # Condense all JSON output files into a single CSV file
     cd $OUTPUTS_FOLDER/analyze-topics
-    echo 'domain,first_attested_domains,first_allowed_domains,first_topics_api_usages,banner_clicked,click_attested_domains,click_allowed_domains,click_topics_api_usages,second_attested_domains,second_allowed_domains,second_topics_api_usages' > $OUTPUTS_FOLDER/analyze-topics-output.csv
-    jq -r '[.url, (.first.attested_domains | tostring), (.first.allowed_domains | tostring), (.first.topics_api_usages | tostring), .banner_clicked, (.click.attested_domains | tostring), (.click.allowed_domains | tostring), (.click.topics_api_usages | tostring), (.second.attested_domains | tostring), (.second.allowed_domains | tostring), (.second.topics_api_usages | tostring)] | @csv' *.json >> $OUTPUTS_FOLDER/analyze-topics-output.csv
+    echo 'domain,first_attested_domains,first_allowed_domains,first_topics_api_usages,first_consent_managers,first_has_gtm,banner_clicked,second_attested_domains,second_allowed_domains,second_topics_api_usages,second_consent_managers,second_has_gtm' > $OUTPUTS_FOLDER/analyze-topics-output.csv
+    jq -r '[.url, (.first.attested_domains | tostring), (.first.allowed_domains | tostring), (.first.topics_api_usages | tostring), (.first.consent_managers | tostring), (.first.has_gtm), .banner_clicked, (.second.attested_domains | tostring), (.second.allowed_domains | tostring), (.second.topics_api_usages | tostring), (.second.consent_managers | tostring), (.second.has_gtm)] | @csv' *.json >> $OUTPUTS_FOLDER/analyze-topics-output.csv
     cd $cwd
 fi
 

@@ -1,1 +1,3 @@
-topics_output.json
+*.json
+
+__pycache__

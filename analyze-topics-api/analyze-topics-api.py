@@ -5,13 +5,19 @@ import requests
 import json
 import sys
 from urllib.parse import urlparse
-from get_domain import getGood2LD
+from get_domain import getGood2LD, getFullDomain, getDomainOfLevel
+
+GOOGLE_TAG_MANAGER_DOMAIN = "googletagmanager.com"
+
+CMP_DOMAIN_EXCEPTIONS = [ "2badvice-cdn.azureedge.net", "fundingchoicesmessages.google.com", "optanon.blob.core.windows.net", "cookie-sl.s3.*.amazonaws.com" ]
+CMP_DOMAIN_EXCEPTIONS_2LD = [ getGood2LD(domain) for domain in CMP_DOMAIN_EXCEPTIONS ]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('infile', type=str)
 parser.add_argument('--timeout', type=int, default=5)
 parser.add_argument('--attested_domains_file', type=str, default='attested_domains.csv')
 parser.add_argument('--allowed_domains_file', type=str, default='allowed_domains.txt')
+parser.add_argument('--consent_managers_file', type=str, default='consent-managers.txt')
 parser.add_argument('--outfile', type=str, default='topics_output.json')
 parser.add_argument('--pretty_print', action='store_true')
 
@@ -25,7 +31,7 @@ def log(str):
 
 def read_domains_file(file_path):
     with open(file_path) as file:
-        domains = { line.split(",")[0].strip() for line in file.readlines() }
+        domains = { line.split(",")[0].strip() for line in file.readlines() if not line.startswith("#") }
     return domains
 
 def main():
@@ -34,14 +40,15 @@ def main():
     data = {}
     attested_domains = read_domains_file(attested_domains_file)
     allowed_domains = read_domains_file(allowed_domains_file)
+    consent_managers = { (getFullDomain(domain) if getGood2LD(domain) in CMP_DOMAIN_EXCEPTIONS_2LD else getGood2LD(domain)) for domain in read_domains_file(consent_managers_file) }
 
     data["url"] = input_json["first"]["requests"][0]["documentURL"]
-    for stage in [ "first", "click", "second", "internal" ]:
+    for stage in [ "first", "second" ]:
         visit_data = input_json.get(stage)
         if visit_data is None:
             continue
         log(f"Analyzing data for stage {stage}")
-        data[stage] = get_topics_api_data(visit_data, attested_domains, allowed_domains)
+        data[stage] = get_topics_api_data(visit_data, attested_domains, allowed_domains, consent_managers)
     
     # Save whether accept button has been clicked
     clicked_element = input_json.get("banner_data", {}).get("clicked_element")
@@ -52,14 +59,14 @@ def main():
     data["log_entries"] = log_entries
     log("All Done")
 
-def get_topics_api_data(network_data, attested_domains, allowed_domains):
+def get_topics_api_data(network_data, attested_domains, allowed_domains, consent_managers):
     requests = network_data["requests"]
     responses = network_data["responses"]
 
     # Map the Origin URL to the API usage object
     topics_api_usages_map = { obj["context_origin_url"]: obj for obj in network_data["topics_api_usages"] }
 
-    data = { "attested_domains": set(), "allowed_domains": set() }
+    data = { "attested_domains": set(), "allowed_domains": set(), "consent_managers": set(), "has_gtm": False }
     for request in requests:
         url = request["request"]["url"]
         domain = getGood2LD(url)
@@ -67,6 +74,13 @@ def get_topics_api_data(network_data, attested_domains, allowed_domains):
             data["attested_domains"].add(domain)
         if domain in allowed_domains:
             data["allowed_domains"].add(domain)
+
+        cmp_domain = next((cmp for cmp in consent_managers if cmp == getDomainOfLevel(url, len(cmp.split(".")))), None)
+        if cmp_domain is not None:
+            data["consent_managers"].add(cmp_domain)
+
+        if domain == GOOGLE_TAG_MANAGER_DOMAIN:
+            data["has_gtm"] = True
 
         origin = get_origin(url)
         topics_api_usage = topics_api_usages_map.get(origin)
@@ -85,7 +99,14 @@ def get_topics_api_data(network_data, attested_domains, allowed_domains):
             data["attested_domains"].add(domain)
         if domain in allowed_domains:
             data["allowed_domains"].add(domain)
-            
+        
+        cmp_domain = next((cmp for cmp in consent_managers if cmp == getDomainOfLevel(url, len(cmp.split(".")))), None)
+        if cmp_domain is not None:
+            data["consent_managers"].add(cmp_domain)
+
+        if domain == GOOGLE_TAG_MANAGER_DOMAIN:
+            data["has_gtm"] = True
+
         origin = get_origin(url)
         topics_api_usage = topics_api_usages_map.get(origin)
         if topics_api_usage is None:
@@ -105,6 +126,7 @@ def get_topics_api_data(network_data, attested_domains, allowed_domains):
     data["topics_api_usages"] = list(topics_api_usages_map.values())
     data["attested_domains"] = list(data["attested_domains"])
     data["allowed_domains"] = list(data["allowed_domains"])
+    data["consent_managers"] = list(data["consent_managers"])
 
     return data
 
