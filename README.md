@@ -1,81 +1,81 @@
-## Priv-Accept-Topics
+# Priv-Accept-Topics
 
-Accept automatically the Privacy Policies to allow automated measurements of the web as real users experience.
-Priv-Accept visits a URL and uses a heuristic to find and click the accept button on privacy policies.
-It is based on a set of keywords to find the right button/link.
+An adaptation of the [*Priv-Accept*](https://github.com/marty90/priv-accept) web crawler, used to detect the usages of the Topics API.
 
-Additionally, this fork of the project allows to detect the usage of Google's [Topics API](https://developers.google.com/privacy-sandbox/relevance/topics) at the given website by reading the BrowsingTopicsSiteData database saved locally inside Chrome's profile folder.
+## Repository structure
 
-Given a website, the tool accomplishes these tasks:
+This repository consists of three main folders:
+* The `crawler` folder contains the source code of the original *Priv-Accept* crawler, modified to allow the detection and recording of the Topics API usages.
+* The `analyze-topics-api` folder contains tools developed to extract useful information from *Priv-Accept*'s outputs, in JSON format.
+* `open-data` contains a clean dataset obtained during a single crawling performed on March 26th, 2024.
 
-* Visits the website with a fresh browser profile
-* Clicks on the Accept button, if one is found
-* Re-visits the URL after the consent is given
-* Stores a rich log files containing metadata on the visits, including all URLs, installed cookies, performance metrics (e.g., OnLoad time) and Topics API data
+Each folder contains its relative README file, providing additional information.
+
+Additionally, we provide the following files:
+* `analyze-topics-complete.sh` is a single script that automates the entire measurement campaign.
+* `chromium-changes.patch` contains the changes to be applied to Chromium's source code, if you wish to build it for yourself.
+
+## Performing the measurements
+
+We provide an automated bash script which performs the entire measurement campaign from a single machine. The tools used are the same present in this repository. The steps taken by the script and its outputs can be summarised in the following diagram:
+```mermaid
+flowchart TD
+    PrivAccept("<b><i>Priv-Accept</i></b>") --> PAOutput["**{...}** output.json"]
+    PAOutput --> ExtractDomains("<b>Extract contacted domains</b>") & AnalyzeTopics("<b>Topic analysis</b>")
+    ExtractDomains --> EDOutput["fa:fa-list contacted_domains.txt"]
+    EDOutput --> AttestDomains("<b>Extract <i>Attested</i> domains</b>")
+    AttestDomains --> ADOutput["fa:fa-list attested_domains.csv"]
+    ADOutput --> AnalyzeTopics
+    AnalyzeTopics --> ATOutput["fa:fa-database analyze-topics-outputs.csv"]
+    AttestDomains <-.-> WellKnown(["fa:fa-globe https://&lt;domain&gt;/.well-known/..."])
+    LocalAttestations["fa:fa-file-shield privacy-sandbox-attestations.dat"] --> ExtractAllowed("<b>Extract <i>Allowed</i> domains</b>")
+    ExtractAllowed --> AllowedDomains["fa:fa-list allowed_domains.txt"]
+    AllowedDomains --> AnalyzeTopics
+
+    PAOutput@{ shape: lean-r}
+    EDOutput@{ shape: lean-r}
+    ADOutput@{ shape: lean-r}
+    ATOutput@{ shape: disk}
+    LocalAttestations@{ shape: disk}
+    AllowedDomains@{ shape: lean-r}
+```
 
 ### Prerequisites
 
-You need Python 3 with the libraries specified in the [requirements.txt](./requirements.txt) file. They can be installed by running
+The script is confirmed to work on a single machine running Ubuntu 22.04 LTS. The following packages are required:
+* **Python** version 3.11.8 or higher, to execute the scripts. You can install the various dependencies with this command:
+    ```shell
+    pip install -r analyze-topics-api/requirements.txt
+    ```
+    It is not needed to install the dependencies for *Priv-Accept*, as the script executes it within a Docker container with all dependencies already installed.
+* **Google Chrome** (unmodified), preferrably version 122.0.6261.128, to allow the extraction of the *Allowed* domain set.
+* **Xvfb**, to allow the execution of Chrome under a virtual screen.
+* **Docker**, to allow the execution of a containerized version of *Priv-Accept* with a pre-built version of the modified Chromium browser included.
+* **GNU Parallel**, to allow the execution in parallel of multiple instances of the same step for different websites.
+
+### Running the script
+
+Once the needed packages and dependencies are installed, you can simply execute the script:
 ```shell
-pip install -r requirements.txt
-```
-You also need Google Chrome and [chromedriver](https://chromedriver.chromium.org/) to allow Selenium using it. For using a Virtual Display, you need the `pyvirtualdisplay` Python module (included in the requirements file) and xvfb installed on the machine.
-
-Priv-Accept can also be built in a Docker image to allow parallel and isolated experiment. You can build the Docker image using the `Dockerfile` provided in this repo. The images extends the [BrowserTime](https://www.sitespeed.io/documentation/browsertime/) image to profit from the ready-to-use setup.
-
-
-### Usage
-
-Priv-Accept runs via command line and accept the following arguments:
+bash anayze-topics-complete.sh
 
 ```
-priv-accept.py    [-h] [--url URL] [--outfile OUTFILE]
-                    [--pretty-print]
-                    [--accept_words ACCEPT_WORDS]
-                    [--chrome_binary CHROME_BINARY]
-                    [--chrome_driver CHROME_DRIVER]
-                    [--screenshot_dir SCREENSHOT_DIR] [--lang LANG]
-                    [--timeout TIMEOUT] [--clear_cache] [--headless]
-                    [--try_scroll] [--global_search] [--full_net_log]
-                    [--pre_visit] [--rum_speed_index]
-                    [--visit_internals] [--num_internal]
-                    [--chrome_extra_option] [--network_conditions]
-                    [--detect_topics] [--xvfb]
-                    
-```
-* `-h`: print the help
-* `--url URL`: the url to visit
-* `--outfile OUTFILE`: the output file with the metadata in JSON
-* `--pretty-print`: if enabled, the output file will be beautified and printed in multiple lines, otherwise the output will be printed minified in a single line.
-* `--accept_words ACCEPT_WORDS`: a file with the expressions that indicate cookie acceptance
-* `--chrome_binary CHROME_BINARY`: the path to chrome's binary in your machine. By default, it searches on Chrome's default directories in the machine.
-* `--chrome_driver CHROME_DRIVER`: the path to chrome_driver in your machine. By default, is searches on the current directory
-* `--screenshot_dir SCREENSHOT_DIR`: where to save the screenshots of the visits and clicked element
-* `--lang LANG`: the language to set. It can affect the Cookie Banner content
-* `--timeout TIMEOUT`: the timeout to wait for extra-traffic after the onLoad events
-* `--connection_timeout CONNECTION_TIMEOUT`: the timeout to wait when loading a page before dropping the connection
-* `--clear_cache`: clear the cache after the first visit
-* `--headless`: run Chrome in headless mode. Note: in headless mode, the `clear_cache` cannot clean the DNS and socket cache due to limitations of Chrome
-* `--try_scroll`: try to scroll the page if no banner is found
-* `--user_agent`: override Chrome User Agent
-* `--full_net_log`: store in the output file the details of the requests/responses
-* `--pre_visit`: make all visits as "second visits", so with warm cache and open sockets
-* `--rum_speed_index`: compute the [RUM Speed Index](https://github.com/WPO-Foundation/RUM-SpeedIndex)
-* `--visit_internals`: also visit internal pages, randomnly choosen
-* `--num_internal`: number of internal pages to visit, if `--visit_internals`
-* `--chrome_extra_option`: add custom options to the Chrome command line. Can be repeated multiple times.
-* `--network_conditions`: use Chrome throttling to emulate network conditions. Argument must be `latency_ms:download_bps:upload_bps`. Note: Chrome throttling is very synthetic.
-* `--detect-topics`: detect the usage of the Topics API
-* `--xvfb`: Use a virtual display with `xvfb`, .
+Keep in mind that the campaign is a lengthy and heavy process, which will use a large portion of the machine's CPU for an extended period of time. A 50,000-website crawl can last from 24 hours to several days, depending on the specs.
 
-### Output
+### Customizing `analyze-topics-complete.sh`'s behaviour
 
-The main output is a JSON file with various statistics, including all the HTTP requests fired at each stage, the cookies that are installed and some information about the found banners. You can can also find performance metrics such as OnLoad time and DOMLoaded time. It can compute the RUM Speed Index. Notice that performance metrics depend on whether you fisit the page with a fresh or non-fresh browser profile. It also includes data related to the usages of the Topics API, including the third parties who called them, if the relative option is enabled.
+The beginning of the bash script contains the definitions of constants which can be modified to your liking:
+* `WORKING_FOLDER`: where the root of the repository is located.
+* `OUTPUTS_FOLDER`: where the *raw* outputs should be saved.
+* `FINAL_OUTPUTS_FOLDER`: where the zipped final outputs should be saved.
+* `CHROME_CONFIG_FOLDER`: where Chrome's local configuration folder is located.
+* `WEBSITE_LIMIT`: how many websites to visit.
+* `PRIV_ACCEPT_TIMEOUT`: how long to wait for *Priv-Accept* to produce an output relative to a single website before automatically killing its instance.
 
-Moreover, it stores screenshots of the page and of the cookie banners found as well as the clicked element.
+## Chromium modifications
 
+If you wish to build your own customized version of Chromium with our modifications, we provide the `chromium-changes.patch` file. The patches shall be applied to the root of Chromium version 122.0.6261.128's source code.
 
-### Open Data
+## Open data
 
-To allow reproducing our results, in the `open-data` directory, we provide the data, the plots and the code used in the paper.
-
+To allow reproducing our results, we provide the same dataset, plots and code used to generate them in the `open-data` folder.

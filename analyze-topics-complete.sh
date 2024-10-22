@@ -1,7 +1,9 @@
 #!/bin/bash
 
 TODAY=$(date +%Y%m%d) # YYYYMMDD
-WORKING_FOLDER="/home/$USER/priv-accept-topics/analyze-topics-api"
+
+# Customize these constants to your liking
+WORKING_FOLDER="/home/$USER/priv-accept-topics"
 OUTPUTS_FOLDER="$WORKING_FOLDER/outputs-$TODAY"
 FINAL_OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 CHROME_CONFIG_FOLDER="/home/$USER/.config/google-chrome"
@@ -75,17 +77,17 @@ head -n $WEBSITE_LIMIT $OUTPUTS_FOLDER/top-1m.csv | sed -e "s/\r//g" | while IFS
 
 if [ ! -f "$OUTPUTS_FOLDER/connected_domains.txt" ]; then
     # Run extract-domains
-    ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% "python3 $WORKING_FOLDER/extract-domains.py $OUTPUTS_FOLDER/priv-accept/{}" | sort | uniq > $OUTPUTS_FOLDER/connected_domains.txt
+    ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% "python3 $WORKING_FOLDER/analyze-topics-api/extract-domains.py $OUTPUTS_FOLDER/priv-accept/{}" | sort | uniq > $OUTPUTS_FOLDER/connected_domains.txt
 fi
 
 if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
     # Run attest-domains
     echo "domain,attestation_result" > $OUTPUTS_FOLDER/attested_domains.csv
-    cat $OUTPUTS_FOLDER/connected_domains.txt | parallel --load 80% "python3 $WORKING_FOLDER/attest-domain.py {}" >> $OUTPUTS_FOLDER/attested_domains.csv
+    cat $OUTPUTS_FOLDER/connected_domains.txt | parallel --load 80% "python3 $WORKING_FOLDER/analyze-topics-api/attest-domain.py {}" >> $OUTPUTS_FOLDER/attested_domains.csv
 fi
 
 # Run analyze-topics
-ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --resume --joblog $OUTPUTS_FOLDER/analyze-topics.log "python3 $WORKING_FOLDER/analyze-topics-api.py $OUTPUTS_FOLDER/priv-accept/{} --attested_domains_file $OUTPUTS_FOLDER/attested_domains.csv --allowed_domains_file $OUTPUTS_FOLDER/allowed_domains.txt --consent_managers_file $WORKING_FOLDER/consent-managers.txt --outfile $OUTPUTS_FOLDER/analyze-topics/{}"
+ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --resume --joblog $OUTPUTS_FOLDER/analyze-topics.log "python3 $WORKING_FOLDER/analyze-topics-api/analyze-topics-api.py $OUTPUTS_FOLDER/priv-accept/{} --attested_domains_file $OUTPUTS_FOLDER/attested_domains.csv --allowed_domains_file $OUTPUTS_FOLDER/allowed_domains.txt --consent_managers_file $WORKING_FOLDER/analyze-topics-api/consent-managers.txt --outfile $OUTPUTS_FOLDER/analyze-topics/{}"
 
 if [ ! -f "$OUTPUTS_FOLDER/analyze-topics-output.csv" ]; then
     # Condense all JSON output files into a single CSV file

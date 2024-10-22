@@ -9,16 +9,14 @@ parser.add_argument('input_file', type=str)
 def main(args):
     with open(args.input_file, "r") as input_json_file:
         input_json = json.load(input_json_file)
-    banner_clicked = input_json.get("banner_data", {}).get("clicked_element") is not None
-    if banner_clicked:
-        domains = extract_domains(input_json)
-        print(f"Found {len(domains)} domain(s) in {args.input_file}", file=sys.stderr)
-        for domain in domains:
-            print(domain)
+    domains = extract_domains(input_json)
+    print(f"Found {len(domains)} domain(s) in {args.input_file}", file=sys.stderr)
+    for domain in domains:
+        print(domain)
 
 def extract_domains(input_json):
     domains = set()
-    for stage in [ "second" ]:
+    for stage in [ "first", "second" ]:
         visit_data = input_json.get(stage)
         if visit_data is None:
             continue

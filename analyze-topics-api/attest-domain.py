@@ -5,22 +5,23 @@ from json.decoder import JSONDecodeError
 import sys
 import time
 
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('domain', type=str)
 parser.add_argument('--timeout', type=int, default=60)
+parser.add_argument('--user_agent', type=str, default=DEFAULT_USER_AGENT)
 
 def main(args):
-    sandbox_attestation = get_privacy_sandbox_attestation_data(args.domain, args.timeout)
+    sandbox_attestation = get_privacy_sandbox_attestation_data(args.domain, args.timeout, args.user_agent)
     if sandbox_attestation is not None:
         print(f"Found attested domain {args.domain}", file=sys.stderr)
         sandbox_attestation_csv = json.dumps(sandbox_attestation).replace('"', '""')
         print(f'{args.domain},"{sandbox_attestation_csv}"')
 
-def get_privacy_sandbox_attestation_data(domain, timeout):
+def get_privacy_sandbox_attestation_data(domain, timeout, user_agent):
     try:
-        r = requests.get("https://{}/.well-known/privacy-sandbox-attestations.json".format(domain), headers={ "User-Agent": USER_AGENT }, timeout=timeout, verify=False)
+        r = requests.get("https://{}/.well-known/privacy-sandbox-attestations.json".format(domain), headers={ "User-Agent": user_agent }, timeout=timeout, verify=False)
     except Exception as e:
         # Connection error or invalid URL, suppose the domain is not valid
         return None
