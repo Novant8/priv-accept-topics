@@ -52,12 +52,13 @@ The script is confirmed to work on a single machine running Ubuntu 22.04 LTS. Th
 * **Xvfb**, to allow the execution of Chrome under a virtual screen.
 * **Docker**, to allow the execution of a containerized version of *Priv-Accept* with a pre-built version of the modified Chromium browser included.
 * **GNU Parallel**, to allow the execution in parallel of multiple instances of the same step for different websites.
+* **jq**, to compact multiple JSON outputs into a single CSV file.
 
 ### Running the script
 
 Once the needed packages and dependencies are installed, you can simply execute the script:
 ```shell
-bash anayze-topics-complete.sh
+bash analyze-topics-complete.sh
 
 ```
 Keep in mind that the campaign is a lengthy and heavy process, which will use a large portion of the machine's CPU for an extended period of time. A 50,000-website crawl can last from 24 hours to several days, depending on the specs.
