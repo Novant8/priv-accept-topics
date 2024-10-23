@@ -102,5 +102,5 @@ if [ ! -f "$FINAL_OUTPUTS_FOLDER/output-$TODAY.zip" ]; then
     zip -j $FINAL_OUTPUTS_FOLDER/output-$TODAY.zip $OUTPUTS_FOLDER/connected_domains.txt $OUTPUTS_FOLDER/attested_domains.csv $OUTPUTS_FOLDER/allowed_domains.txt $OUTPUTS_FOLDER/analyze-topics-output.csv
     
     # Final cleanup
-    rm -rf $OUTPUTS_FOLDER
+    # rm -rf $OUTPUTS_FOLDER
 fi
