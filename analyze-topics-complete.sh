@@ -96,6 +96,8 @@ if [ ! -f "$OUTPUTS_FOLDER/analyze-topics-output.csv" ]; then
     cd $cwd
 fi
 
+mkdir -p $FINAL_OUTPUTS_FOLDER
+
 if [ ! -f "$FINAL_OUTPUTS_FOLDER/output-$TODAY.zip" ]; then
     # Zip important files into final output
     zip -j $FINAL_OUTPUTS_FOLDER/output-$TODAY.zip $OUTPUTS_FOLDER/connected_domains.txt $OUTPUTS_FOLDER/attested_domains.csv $OUTPUTS_FOLDER/allowed_domains.txt $OUTPUTS_FOLDER/analyze-topics-output.csv
