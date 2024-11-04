@@ -53,6 +53,7 @@ The script is confirmed to work on a single machine running Ubuntu 22.04 LTS. Th
 * **Docker**, to allow the execution of a containerized version of *Priv-Accept* with a pre-built version of the modified Chromium browser included.
 * **GNU Parallel**, to allow the execution in parallel of multiple instances of the same step for different websites.
 * **jq**, to compact multiple JSON outputs into a single CSV file.
+* **zip** and **unzip**.
 
 ### Running the script
 
