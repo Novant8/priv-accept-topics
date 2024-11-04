@@ -17,8 +17,7 @@ run_chrome() {
 
 kill_chrome() {
     echo "Killing Chrome..."
-    ps -ax | grep "chrome" | cut -d " " -f2 | xargs kill -15
-    while ps -ax | grep "chrome"; do sleep 5; done
+    pkill "chrome"
 }
 
 docker_auto_kill() {
