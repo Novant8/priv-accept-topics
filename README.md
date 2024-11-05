@@ -55,6 +55,8 @@ The script is confirmed to work on a single machine running Ubuntu 22.04 LTS. Th
 * **jq**, to compact multiple JSON outputs into a single CSV file.
 * **zip** and **unzip**.
 
+For machines running Ubuntu, we provide the `install-dependencies.sh` script. **Note**: Make sure to restart the machine after running it.
+
 ### Running the script
 
 Once the needed packages and dependencies are installed, you can simply execute the script:
