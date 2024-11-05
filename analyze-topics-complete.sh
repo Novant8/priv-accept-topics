@@ -85,7 +85,7 @@ if [ ! -f "$OUTPUTS_FOLDER/connected_domains.txt" ]; then
     echo "EXTRACTING CONTACTED DOMAINS..."
 
     # Run extract-domains
-    ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --results $OUTPUTS_FOLDER/extract-domains-logs --progress --bar --eta "python3 $WORKING_FOLDER/analyze-topics-api/extract-domains.py $OUTPUTS_FOLDER/priv-accept/{}" | sort | uniq > $OUTPUTS_FOLDER/connected_domains.txt
+    ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --progress --bar --eta "python3 $WORKING_FOLDER/analyze-topics-api/extract-domains.py $OUTPUTS_FOLDER/priv-accept/{}" 2> $OUTPUTS_FOLDER/extract-domains.stderr | sort | uniq > $OUTPUTS_FOLDER/connected_domains.txt
 fi
 
 if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
