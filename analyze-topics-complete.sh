@@ -88,10 +88,14 @@ if [ ! -f "$OUTPUTS_FOLDER/connected_domains.txt" ]; then
     ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --progress --bar --eta "python3 $WORKING_FOLDER/analyze-topics-api/extract-domains.py $OUTPUTS_FOLDER/priv-accept/{}" 2> $OUTPUTS_FOLDER/extract-domains.stderr | sort | uniq > $OUTPUTS_FOLDER/connected_domains.txt
 fi
 
-if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
-    echo "EXTRACTING ATTESTED DOMAINS..."
+if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then    
+    # Attest allowed domains
+    echo "EXTRACTING ATTESTED AND ALLOWED DOMAINS..."
+    echo "domain,attestation_result" > $OUTPUTS_FOLDER/allowed_attested.csv
+    cat $OUTPUTS_FOLDER/allowed_domains.txt | parallel --load 80% --progress --bar --eta "python3 $WORKING_FOLDER/analyze-topics-api/attest-domain.py {}" >> $OUTPUTS_FOLDER/allowed_attested.csv
     
-    # Run attest-domains
+    # Attest domains found during the crawling
+    echo "EXTRACTING ATTESTED AND CONTACTED DOMAINS..."
     echo "domain,attestation_result" > $OUTPUTS_FOLDER/attested_domains.csv
     cat $OUTPUTS_FOLDER/connected_domains.txt | parallel --load 80% --progress --bar --eta "python3 $WORKING_FOLDER/analyze-topics-api/attest-domain.py {}" >> $OUTPUTS_FOLDER/attested_domains.csv
 fi
