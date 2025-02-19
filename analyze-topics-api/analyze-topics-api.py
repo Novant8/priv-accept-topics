@@ -20,6 +20,7 @@ parser.add_argument('--allowed_domains_file', type=str, default='allowed_domains
 parser.add_argument('--consent_managers_file', type=str, default='consent-managers.txt')
 parser.add_argument('--outfile', type=str, default='topics_output.json')
 parser.add_argument('--pretty_print', action='store_true')
+parser.add_argument('--check_script_content', action='store_true')
 
 globals().update(vars(parser.parse_args()))
 
@@ -119,7 +120,7 @@ def get_topics_api_data(network_data, attested_domains, allowed_domains, consent
 
         content_type = headers.get("content-type") or headers.get("Content-Type")
         if topics_api_usage["caller_source"] == "javascript" and content_type is not None:
-            if ('text/javascript' in content_type or "application/javascript" in content_type) and content_has_browsing_topics(url):
+            if check_script_content and ('text/javascript' in content_type or "application/javascript" in content_type) and content_has_browsing_topics(url):
                 topics_api_usage["possible_callers"] = topics_api_usage.get("possible_callers", [])
                 topics_api_usage["possible_callers"].append({ "url": url, "reason": "browsingtopics-in-script" })
 
