@@ -18,5 +18,7 @@ ADD priv-accept.py /opt/priv-accept
 ADD accept_words.txt /root/
 ADD rum-speedindex.js /root/
 
+ADD ./entrypoint.sh /root/
+
 WORKDIR /root/
-ENTRYPOINT ["/opt/priv-accept/priv-accept.py", "--chrome_driver", "/opt/chromium-topics/chromedriver", "--chrome_binary", "/opt/chromium-topics/chrome", "--docker", "--detect_topics" ]
+ENTRYPOINT [ "bash", "/root/entrypoint.sh" ]
