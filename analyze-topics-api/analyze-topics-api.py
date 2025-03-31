@@ -124,7 +124,15 @@ def get_topics_api_data(network_data, attested_domains, allowed_domains, consent
                 topics_api_usage["possible_callers"] = topics_api_usage.get("possible_callers", [])
                 topics_api_usage["possible_callers"].append({ "url": url, "reason": "browsingtopics-in-script" })
 
-    data["topics_api_usages"] = list(topics_api_usages_map.values())
+    data["topics_api_usages"] = [
+        {
+            **usage,
+            "allowed": getGood2LD(usage["context_origin_url"]) in allowed_domains,
+            "attested": getGood2LD(usage["context_origin_url"]) in attested_domains
+        }
+        for usage in topics_api_usages_map.values()
+    ]
+    
     data["attested_domains"] = list(data["attested_domains"])
     data["allowed_domains"] = list(data["allowed_domains"])
     data["consent_managers"] = list(data["consent_managers"])
