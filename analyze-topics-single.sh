@@ -2,18 +2,19 @@
 
 # Environment variables
 WORKING_DIR="${WORKING_DIR:=$PWD}"
+INPUT_DIR="${INPUT_DIR:="$WORKING_DIR/input"}"
 OUTPUT_DIR="${OUTPUT_DIR:="$WORKING_DIR/output"}"
 CHROMIUM_DIR="${CHROMIUM_DIR:="$WORKING_DIR/crawler/chromium"}"
 
 # Extract allowed domains if unavailable
-if [ ! -f "$WORKING_DIR/input/allowed-domains.txt" ]; then
+if [ ! -f "$INPUT_DIR/allowed-domains.txt" ]; then
     echo "No list of allowed domains given, using empty list." >&2
-    mkdir "$WORKING_DIR/input"
-    touch "$WORKING_DIR/input/allowed-domains.txt"
+    mkdir -p "$INPUT_DIR"
+    touch "$INPUT_DIR/allowed-domains.txt"
 fi
 
 if [ ! -d "$OUTPUT_DIR" ]; then
-    mkdir "$OUTPUT_DIR"
+    mkdir -p "$OUTPUT_DIR"
 fi
 
 # RUN PRIV-ACCEPT
@@ -46,7 +47,7 @@ cat "$OUTPUT_DIR/contacted-domains.txt" | xargs -I {} timeout -s KILL ${CONNECTI
 # EXTRACT TOPICS API DATA FROM OUTPUTS
 python3 "$WORKING_DIR/analyze-topics-api/analyze-topics-api.py" "$OUTPUT_DIR/priv-accept-output.json" \
     --attested_domains_file "$OUTPUT_DIR/attested-domains.csv" \
-    --allowed_domains_file "$WORKING_DIR/input/allowed-domains.txt" \
+    --allowed_domains_file "$INPUT_DIR/allowed-domains.txt" \
     --consent_managers_file "$WORKING_DIR/analyze-topics-api/consent-managers.txt" \
     --outfile "$OUTPUT_DIR/analyze-topics-output.json"
 
