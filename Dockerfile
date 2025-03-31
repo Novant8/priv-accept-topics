@@ -1,4 +1,4 @@
-FROM sitespeedio/browsertime:23.5.0
+FROM sitespeedio/browsertime:24.5.0
 
 # Install xargs and jq
 RUN apt update && apt install -y findutils jq xvfb
