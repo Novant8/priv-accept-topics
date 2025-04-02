@@ -40,6 +40,8 @@ parser.add_argument('--pre_visit', action='store_true')
 parser.add_argument('--chrome_extra_option', type=str, action='append', default=[])
 parser.add_argument('--network_conditions', type=str, default=None)
 parser.add_argument('--rum_speed_index', action='store_true')
+parser.add_argument('--force_second_visit', action='store_true')
+parser.add_argument('--force_click_data', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
 parser.add_argument('--detect_topics', action='store_true')
@@ -171,6 +173,7 @@ def main():
             log("Switching to frame: {}".format(content.id) )
             try:
                 driver.switch_to.frame(content)
+                log("Searching Banner")
                 banner_data = click_banner(driver)
                 driver.switch_to.default_content()
                 if "clicked_element" in banner_data:
@@ -180,42 +183,53 @@ def main():
                 log("Error in switching to frame")
                 
     stats["has-scrolled"] = False
-    if not "clicked_element" in banner_data and try_scroll:
+    banner_found = "clicked_element" in banner_data
+    if not banner_found and try_scroll:
         log("Trying with scroll")
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
+        log("Searching Banner")
+        banner_data = click_banner(driver)
         stats["has-scrolled"] = True
-    stats["has-found-banner"] = "clicked_element" in banner_data
-    time.sleep(timeout)
-    log("Getting data of post-click")
-    click_data, last_usage_time = get_data(driver, after=last_usage_time)
-    make_screenshot("{}/all-click.png".format(screenshot_dir))
-    log("URL after click: {}".format(driver.current_url))
-    stats["after-click-landing-page"] = driver.current_url
+        banner_found = "clicked_element" in banner_data
+    stats["has-found-banner"] = banner_found
+    
+    click_data = None
+    if banner_found or force_click_data:
+        time.sleep(timeout)
+        log("Getting data of post-click")
+        click_data, last_usage_time = get_data(driver, after=last_usage_time)
+        make_screenshot("{}/all-click.png".format(screenshot_dir))
+        log("URL after click: {}".format(driver.current_url))
+        stats["after-click-landing-page"] = driver.current_url
 
-    #  Go to the page, second visit
-    log("Making the Second Visit")
-    stats["has-cleared-cache"] = False
-    if clear_cache:
-        clear_status()
-        stats["has-cleared-cache"] = True
-    # Clean last page
-    driver.get("about:blank")
-    get_data(driver)
+    after_data = None
+    if banner_found or force_second_visit:
+        #  Go to the page, second visit
+        log("Making the Second Visit")
+        stats["has-cleared-cache"] = False
+        if clear_cache:
+            clear_status()
+            stats["has-cleared-cache"] = True
+        # Clean last page
+        driver.get("about:blank")
+        get_data(driver)
 
-    start_time=time.time()
-    driver.get(url)
-    end_time=time.time()
-    if rum_speed_index:
-        rsi = driver.execute_script(open(RUM_SPEED_INDEX_FILE, "r").read() + "; return RUMSpeedIndex(); " )
-        stats["second-visit-rum-speed-index"] = rsi
-        
-    log("Second Visit Selenium time [s]: {}".format(end_time-start_time))
-    stats["second-visit-selenium-time"] = end_time-start_time
-    time.sleep(timeout)
-    stats["second-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
-    log("Getting data of second visit")
-    after_data, last_usage_time = get_data(driver, after=last_usage_time)
-    make_screenshot("{}/all-second.png".format(screenshot_dir))
+        start_time=time.time()
+        driver.get(url)
+        end_time=time.time()
+        if rum_speed_index:
+            rsi = driver.execute_script(open(RUM_SPEED_INDEX_FILE, "r").read() + "; return RUMSpeedIndex(); " )
+            stats["second-visit-rum-speed-index"] = rsi
+            
+        log("Second Visit Selenium time [s]: {}".format(end_time-start_time))
+        stats["second-visit-selenium-time"] = end_time-start_time
+        time.sleep(timeout)
+        stats["second-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
+        log("Getting data of second visit")
+        after_data, last_usage_time = get_data(driver, after=last_usage_time)
+        make_screenshot("{}/all-second.png".format(screenshot_dir))
+    else:
+        log("Banner not found, skipping second visit")
 
     # Save data
     data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
