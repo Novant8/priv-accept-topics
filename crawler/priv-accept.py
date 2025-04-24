@@ -17,6 +17,8 @@ import json
 import time
 import sqlite3
 import shutil
+import trio
+from api_call_interceptor import APICallInterceptor
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -56,7 +58,7 @@ USER_AGENT_DEFAULT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 stats = {}
 
 
-def main():
+async def main():
     global driver
     global url
     global USER_AGENT_DEFAULT
@@ -114,13 +116,15 @@ def main():
     driver.set_page_load_timeout(connection_timeout)
     time.sleep(timeout)
 
+    call_interceptor = APICallInterceptor(driver)
+
     if detect_topics:
         global user_data_dir
         driver.get("chrome://version")
         user_data_dir = "/".join(driver.find_element(By.ID, "profile_path").text.split("/")[:-1])
         log("Changed user dir to {}".format(user_data_dir)) 
         options.add_argument("user-data-dir={}".format(user_data_dir))
-        get_data(driver)
+        get_data(driver, call_interceptor)
 
     # Set network conditions
     if network_conditions:
@@ -131,40 +135,24 @@ def main():
                                                                     "offline": False})
 
     #  Go to the page, first visit
-    stats["pre-visit"] = False
+    stats["pre-visit"] = pre_visit
     if pre_visit:
-        stats["pre-visit"] = True
         log("Making Pre-First Visit")
-        driver.get(url)
-        time.sleep(timeout)
+        perform_visit("pre")
         log("Getting data of pre-visit")
-        get_data(driver)
-        
+        get_data(driver, call_interceptor)
+    
     log("Making First Visit to: {}".format(url))
-    stats["target"] = url
-    stats["start-time"] = time.time()
-
-    start_time=time.time()
-    driver.get(url)
-    end_time=time.time()
-    
-    if rum_speed_index:
-        stats["collect-rum-speed-index"] = True
-        rsi = driver.execute_script(open(RUM_SPEED_INDEX_FILE, "r").read() + "; return RUMSpeedIndex(); " )
-        stats["first-visit-rum-speed-index"] = rsi
-    
-    log("First Visit Selenium time [s]: {}".format(end_time-start_time))
-    stats["first-visit-selenium-time"] = end_time-start_time
-    log("Landed to: {}".format(driver.current_url))
-    stats["first-visit-landing-page"] = driver.current_url
-    time.sleep(timeout)
-    stats["first-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
+    async with call_interceptor.intercept():
+        await trio.to_thread.run_sync(perform_visit, "first")
+        
     log("Getting data of first visit")
-    before_data, last_usage_time = get_data(driver)
+    before_data, last_usage_time = get_data(driver, call_interceptor)
     make_screenshot("{}/all-first.png".format(screenshot_dir))
 
     # Click Banner
     log("Searching Banner")
+    call_interceptor = APICallInterceptor(driver)
     banner_data = click_banner(driver)
 
     if not "clicked_element" in banner_data:
@@ -195,9 +183,11 @@ def main():
     
     click_data = None
     if banner_found or force_click_data:
-        time.sleep(timeout)
+        async with call_interceptor.intercept():
+            await trio.sleep(timeout)
+        
         log("Getting data of post-click")
-        click_data, last_usage_time = get_data(driver, after=last_usage_time)
+        click_data, last_usage_time = get_data(driver, call_interceptor, after=last_usage_time)
         make_screenshot("{}/all-click.png".format(screenshot_dir))
         log("URL after click: {}".format(driver.current_url))
         stats["after-click-landing-page"] = driver.current_url
@@ -212,21 +202,13 @@ def main():
             stats["has-cleared-cache"] = True
         # Clean last page
         driver.get("about:blank")
-        get_data(driver)
-
-        start_time=time.time()
-        driver.get(url)
-        end_time=time.time()
-        if rum_speed_index:
-            rsi = driver.execute_script(open(RUM_SPEED_INDEX_FILE, "r").read() + "; return RUMSpeedIndex(); " )
-            stats["second-visit-rum-speed-index"] = rsi
-            
-        log("Second Visit Selenium time [s]: {}".format(end_time-start_time))
-        stats["second-visit-selenium-time"] = end_time-start_time
-        time.sleep(timeout)
-        stats["second-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
+        get_data(driver, call_interceptor)
+        
+        async with call_interceptor.intercept():
+            await trio.to_thread.run_sync(perform_visit, "second")
+        
         log("Getting data of second visit")
-        after_data, last_usage_time = get_data(driver, after=last_usage_time)
+        after_data, last_usage_time = get_data(driver, call_interceptor, after=last_usage_time)
         make_screenshot("{}/all-second.png".format(screenshot_dir))
     else:
         log("Banner not found, skipping second visit")
@@ -255,15 +237,16 @@ def main():
             log("Warning, only {} internal URLs to visit".format(len(internal_urls)) )
             internal_urls_to_visit = internal_urls
             
-        for internal_url in internal_urls_to_visit:
-            log("Visiting internal URL: {}".format(internal_url ))
-            try:
-                driver.get(internal_url)
-                time.sleep(timeout)
-            except TimeoutException:
-                log("Warning, could not load URL {} before timeout.".format(internal_url))
+        async with call_interceptor.intercept():
+            for i,internal_url in enumerate(internal_urls_to_visit):
+                log("Visiting internal URL: {}".format(internal_url ))
+                try:
+                    await trio.to_thread.run_sync(perform_visit, f"internal-{i}")
+                except TimeoutException:
+                    log("Warning, could not load URL {} before timeout.".format(internal_url))
+        
         log("Getting data of internal page visits")
-        internal_data, _ = get_data(driver, after=last_usage_time)
+        internal_data, _ = get_data(driver, call_interceptor, after=last_usage_time)
 
     # Save
     data = {"first": before_data, "click": click_data, "second": after_data, "banner_data": banner_data,
@@ -278,6 +261,28 @@ def main():
     driver.quit()
     log("All Done")
 
+def first_capital(s: str):
+    return s[0].upper() + s[1:].lower()
+
+def perform_visit(name: str):
+    stats["target"] = url
+    stats["start-time"] = time.time()
+
+    start_time=time.time()
+    driver.get(url)
+    end_time=time.time()
+    
+    if rum_speed_index:
+        stats["collect-rum-speed-index"] = True
+        rsi = driver.execute_script(open(RUM_SPEED_INDEX_FILE, "r").read() + "; return RUMSpeedIndex(); " )
+        stats[f"{name}-visit-rum-speed-index"] = rsi
+    
+    log("{} Visit Selenium time [s]: {}".format(first_capital(name), end_time-start_time))
+    stats[f"{name}-visit-selenium-time"] = end_time-start_time
+    log("Landed to: {}".format(driver.current_url))
+    stats[f"{name}-visit-landing-page"] = driver.current_url
+    time.sleep(timeout)
+    stats[f"{name}-visit-timings"] = driver.execute_script("var performance = window.performance || {}; var timings = performance.timing || {}; return timings;")
 
 def clear_status():
     driver.execute_cdp_cmd('Network.clearBrowserCache', {})
@@ -290,7 +295,7 @@ def clear_status():
         log("Warning: cannot clean DNS and socket cache in headless mode.")
 
 
-def get_data(driver, after = 0):
+def get_data(driver, call_interceptor, after = 0):
 
     #data = {"urls": [],"cookies": driver.get_cookies()}  # Worse than next line
     if full_net_log:
@@ -322,6 +327,9 @@ def get_data(driver, after = 0):
             data["topics_api_usages"], last_usage_time = get_topics_api_usages(after)
         except FileNotFoundError:
             data["topics_api_usages"] = []
+
+    data["javascript_calls"] = call_interceptor.get_calls()
+    call_interceptor.clear_calls()
         
     return data, last_usage_time
 
@@ -450,7 +458,7 @@ def log(str):
 if __name__ == "__main__":
 
     try:
-        main()
+        trio.run(main)
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         log("Exception at line {}: {}".format(exc_tb.tb_lineno, e))
