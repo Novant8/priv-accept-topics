@@ -3,9 +3,10 @@ from selenium.webdriver.common.bidi.cdp import connect_cdp, connection_context, 
 from contextlib import asynccontextmanager
 import json
 import trio
+import os
 from types import ModuleType
 
-with open("intercept-api-calls.js") as file:
+with open(os.path.dirname(os.path.realpath(__file__)) + "/intercept-api-calls.js") as file:
     INTERCEPT_CALLS_SCRIPT = file.read()
 
 class APICallInterceptor:
