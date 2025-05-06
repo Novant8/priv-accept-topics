@@ -6,21 +6,11 @@ TODAY=$(date +%Y%m%d) # YYYYMMDD
 WORKING_FOLDER="/home/$USER/priv-accept-topics"
 OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 FINAL_OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
-CHROME_CONFIG_FOLDER="/home/$USER/.config/google-chrome"
 PRIV_ACCEPT_TIMEOUT="20m"
 EXPRESSVPN_ACTIVATION_CODE="CHANGE_ME"
 
-run_chrome() {
-    echo "Running Chrome..."
-    xvfb-run --auto-servernum google-chrome --disable-gpu > /dev/null 2>&1 &
-}
-
-kill_chrome() {
-    echo "Killing Chrome..."
-    pkill "chrome"
-}
-
 docker_auto_kill() {
+    # Auto-kill docker containers that run for more than 1 hour (assume that they are stuck)
     while true; do
         docker stop $(docker ps --filter "ancestor=salb98/priv-accept-topics:geo" --format "{{ .ID }} {{ .RunningFor }}" | awk "{if (\$0 ~ /hour/) print \$1}") > /dev/null 2>&1
         sleep 10;
@@ -85,29 +75,7 @@ fi
 
 if [ ! -f "$OUTPUTS_FOLDER/allowed_domains.txt" ]; then
     echo "EXTRACTING ALLOWED DOMAINS..."
-
-    # Download allowed domains
-    # Step 1: Delete config files
-    rm -rf $CHROME_CONFIG_FOLDER
-    # Step 2: Open Chrome, wait until config folders have been created, then close Chrome
-    run_chrome
-    echo "Waiting for config folder creation..."
-    until ls "$CHROME_CONFIG_FOLDER/PrivacySandboxAttestationsPreloaded" > /dev/null 2>&1; do sleep 5; done
-    kill_chrome
-    # Step 3: Open Chrome again, wait until the latest version of the list has been downloaded, then close Chrome
-    run_chrome
-    echo "Waiting for allow-list download (may take a couple minutes)..."
-    until ls "$CHROME_CONFIG_FOLDER/PrivacySandboxAttestationsPreloaded" | grep -E "[0-9]" > /dev/null 2>&1; do sleep 5; done
-    kill_chrome
-    # Step 4: Copy the list to the outputs folder
-    folder=$(ls "$CHROME_CONFIG_FOLDER/PrivacySandboxAttestationsPreloaded" -1 | head -n 1)
-    cp $CHROME_CONFIG_FOLDER/PrivacySandboxAttestationsPreloaded/$folder/privacy-sandbox-attestations.dat $OUTPUTS_FOLDER
-
-    # Extract allowed domains from sandbox attestations list
-    docker run --rm \
-        -v $OUTPUTS_FOLDER/privacy-sandbox-attestations.dat:/opt/extract-allowed-domains/privacy-sandbox-attestations.dat \
-        salb98/extract-allowed-domains /opt/extract-allowed-domains/privacy-sandbox-attestations.dat \
-        > $OUTPUTS_FOLDER/allowed_domains.txt
+    docker run --rm salb98/extract-allowed-domains --stdout > $OUTPUTS_FOLDER/allowed_domains.txt
 fi
 
 if [ -n "$remote_server" ]; then
