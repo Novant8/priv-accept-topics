@@ -26,6 +26,9 @@ parser.add_argument('--url', type=str, default='https://www.theguardian.com/')
 parser.add_argument('--outfile', type=str, default='output.json')
 parser.add_argument('--pretty_print', action='store_true')
 parser.add_argument('--accept_words', type=str, default="accept_words.txt")
+parser.add_argument('--deny', action='store_true')
+parser.add_argument('--deny_words', type=str, default="deny_words.txt")
+parser.add_argument('--option_words', type=str, default="option_words.txt")
 parser.add_argument('--chrome_binary', type=str, default=None)
 parser.add_argument('--chrome_driver', type=str, default="./chromedriver")
 parser.add_argument('--screenshot_dir', type=str, default=None)
@@ -111,7 +114,7 @@ async def main():
         display = Display(visible=0, size=(1920, 1080))
         display.start()
 
-    service = Service(executable_path=chrome_driver, desired_capabilities=d)
+    service = Service(executable_path=chrome_driver)
     driver = webdriver.Chrome(service=service, options=options)
     driver.set_page_load_timeout(connection_timeout)
     time.sleep(timeout)
@@ -153,32 +156,29 @@ async def main():
     # Click Banner
     log("Searching Banner")
     call_interceptor = APICallInterceptor(driver)
-    banner_data = click_banner(driver)
 
-    if not "clicked_element" in banner_data:
-        iframe_contents = driver.find_elements(By.CSS_SELECTOR, "iframe")
-        for content in iframe_contents:
-            log("Switching to frame: {}".format(content.id) )
-            try:
-                driver.switch_to.frame(content)
-                log("Searching Banner")
-                banner_data = click_banner(driver)
-                driver.switch_to.default_content()
-                if "clicked_element" in banner_data:
-                    break
-            except NoSuchFrameException:
-                driver.switch_to.default_content()
-                log("Error in switching to frame")
-                
     stats["has-scrolled"] = False
-    banner_found = "clicked_element" in banner_data
-    if not banner_found and try_scroll:
-        log("Trying with scroll")
+    if try_scroll:
+        log("Scrolling to the bottom")
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight)")
-        log("Searching Banner")
-        banner_data = click_banner(driver)
+        time.sleep(timeout)
+        log("Scrolling to the top")
+        driver.execute_script("window.scrollTo(0, 0)")
         stats["has-scrolled"] = True
-        banner_found = "clicked_element" in banner_data
+
+    banner_data = search_iframe_banner(driver)
+    if banner_data is None:
+        log("Searching and Performing Two-Step Click (Option → Deny)")
+        first_result, second_result = double_click_banner(driver)
+        banner_data = {
+            "double_click": True,
+            "option_data": first_result,
+            "button_data": second_result
+        }
+    else:
+        banner_data["double_click"] = False
+
+    banner_found = "clicked_element" in banner_data or (banner_data.get("double_click") and banner_data.get("button_data", {}).get("clicked_element"))
     stats["has-found-banner"] = banner_found
     
     click_data = None
@@ -294,6 +294,37 @@ def clear_status():
     else:
         log("Warning: cannot clean DNS and socket cache in headless mode.")
 
+def search_iframe_banner(driver, wordlist_file=deny_words if deny else accept_words):
+    banner_data = click_banner(driver, wordlist_file)
+    if banner_data.get("clicked_element"):
+        driver.switch_to.default_content()
+        return banner_data
+    iframes = driver.find_elements(By.TAG_NAME, "iframe")
+    for iframe in iframes:
+        try:
+            log(f"Searching for banner in iframe: {iframe.id}")
+            driver.switch_to.frame(iframe)
+            internal_banner_data = search_iframe_banner(driver, wordlist_file)
+            if internal_banner_data:
+                return internal_banner_data
+        except:
+            log("Exception while searching banner in iframe: {}".format(iframe.id))
+        finally: 
+            driver.switch_to.default_content()
+    return None
+
+def double_click_banner(driver):
+    # First click: option_words
+    log("Searching for Options button")
+    first_result = search_iframe_banner(driver, wordlist_file=option_words)
+    if not first_result.get("clicked_element"):
+        return first_result, None
+    
+    time.sleep(timeout)
+    
+    log("Searching for {} button".format("Deny" if deny else "Accept"))
+    second_result = search_iframe_banner(driver)
+    return first_result, second_result
 
 def get_data(driver, call_interceptor, after = 0):
 
@@ -366,55 +397,52 @@ def get_signature(element):
     return signature   
     
 
-def click_banner(driver):
+def click_banner(driver, wordlist_file):
+    words_list = set()
 
-    accept_words_list = set()
-    for w in open(accept_words, "r").read().splitlines():
+    for w in open(wordlist_file, "r").read().splitlines():
         if not w.startswith("#") and not w == "":
-            accept_words_list.add(w)
+            words_list.add(w)
 
     banner_data = {"matched_containers": [], "candidate_elements": []}
     contents = driver.find_elements(By.CSS_SELECTOR, GLOBAL_SELECTOR)
 
-    candidate = None
-
+    candidates = []
 
     for c in contents:
         try:
-            if c.text.lower().strip(" ✓›!\n") in accept_words_list:
-                candidate = c
+            if c.text.lower().strip(" ✓›!\n") in words_list:
+                candidates.append(c)
                 banner_data["candidate_elements"].append({"id": c.id,
                                                           "tag_name": c.tag_name,
                                                           "text": c.text,
                                                           "size": c.size,
                                                           "signature": get_signature(c),
                                                           })
-                break
         except:
             log("Exception in processing element: {}".format (c.id) )
-            
-    # Click the candidate
-    if candidate is not None:
-        try: # in some pages element is not clickable
-
-
-            if screenshot_dir is not None:
-                if not os.path.exists(screenshot_dir):
-                    os.makedirs(screenshot_dir)
-                try:
-                    candidate.screenshot("{}/clicked_element.png".format(screenshot_dir))
-                except Exception as e:
-                    log("Exception in making screenshot: {}".format(e))
-            log("Clicking text: {}".format (candidate.text.lower().strip(" ✓›!\n")) )
-            candidate.click()
-            banner_data["clicked_element"] = candidate.id
-            log("Clicked: {}".format (candidate.id) )
-            
-        except:
-            log("Exception in candidate click")
+    
+    # Click the candidate    
+    if len(candidates) > 0:
+        log("Found {} maching candidate(s)".format(len(candidates)))
+        for candidate in candidates:
+            try: # in some pages element is not clickable
+                if screenshot_dir is not None:
+                    if not os.path.exists(screenshot_dir):
+                        os.makedirs(screenshot_dir)
+                    try:
+                        candidate.screenshot("{}/clicked_element.png".format(screenshot_dir))
+                    except Exception as e:
+                        log("Exception in making screenshot: {}".format(e))
+                log("Clicking text: {}".format (candidate.text.lower().strip(" ✓›!\n")) )
+                candidate.click()
+                banner_data["clicked_element"] = candidate.id
+                log("Clicked: {}".format (candidate.id) )
+                break
+            except:
+                log("Exception in candidate click: {}".format(candidate.id) )
     else:
         log("Warning, no matching candidate")
-
     return banner_data
 
 def get_topics_api_usages(after = 0):
