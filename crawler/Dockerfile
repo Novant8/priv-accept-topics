@@ -47,7 +47,7 @@ ADD ./chromium /opt/chromium-topics
 
 ADD *.py /opt/priv-accept
 ADD *.js /opt/priv-accept
-ADD accept_words.txt /root/
+ADD *_words.txt /root/
 ADD rum-speedindex.js /root/
 
 COPY ./entrypoint.sh /root/

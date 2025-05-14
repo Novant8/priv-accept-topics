@@ -178,7 +178,7 @@ async def main():
     else:
         banner_data["double_click"] = False
 
-    banner_found = "clicked_element" in banner_data or (banner_data.get("double_click") and banner_data.get("button_data", {}).get("clicked_element"))
+    banner_found = "clicked_element" in banner_data or (banner_data.get("double_click") and banner_data.get("button_data") and banner_data["button_data"].get("clicked_element"))
     stats["has-found-banner"] = banner_found
     
     click_data = None
@@ -317,7 +317,7 @@ def double_click_banner(driver):
     # First click: option_words
     log("Searching for Options button")
     first_result = search_iframe_banner(driver, wordlist_file=option_words)
-    if not first_result.get("clicked_element"):
+    if first_result is None or not first_result.get("clicked_element"):
         return first_result, None
     
     time.sleep(timeout)
