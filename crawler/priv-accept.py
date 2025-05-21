@@ -4,9 +4,9 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchFrameException, TimeoutException
+from selenium.webdriver.chrome.webdriver import WebDriver
+from selenium.common.exceptions import TimeoutException
 import argparse
-from urllib.parse import urlparse
 from datetime import datetime
 from selenium import webdriver
 import traceback
@@ -18,7 +18,12 @@ import time
 import sqlite3
 import shutil
 import trio
+
 from api_call_interceptor import APICallInterceptor
+from api_collectors.topics import TopicsApiCallCollector
+from api_collectors.protected_audience import ProtectedAudienceApiCallCollector
+from api_collectors.private_state_tokens import PrivateStateTokensApiCallCollector
+from api_collectors.attribution_reporting import AttributionReportingApiCallCollector
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -119,7 +124,7 @@ async def main():
     driver.set_page_load_timeout(connection_timeout)
     time.sleep(timeout)
 
-    call_interceptor = APICallInterceptor(driver)
+    call_interceptor = init_api_call_interceptor(driver)
 
     if detect_topics:
         global user_data_dir
@@ -155,7 +160,6 @@ async def main():
 
     # Click Banner
     log("Searching Banner")
-    call_interceptor = APICallInterceptor(driver)
 
     stats["has-scrolled"] = False
     if try_scroll:
@@ -261,6 +265,15 @@ async def main():
     driver.quit()
     log("All Done")
 
+def init_api_call_interceptor(driver: WebDriver):
+    collectors = [
+        TopicsApiCallCollector(),
+        ProtectedAudienceApiCallCollector(),
+        PrivateStateTokensApiCallCollector(),
+        AttributionReportingApiCallCollector()
+    ]
+    return APICallInterceptor(driver, collectors)
+
 def first_capital(s: str):
     return s[0].upper() + s[1:].lower()
 
@@ -359,7 +372,7 @@ def get_data(driver, call_interceptor, after = 0):
         except FileNotFoundError:
             data["topics_api_usages"] = []
 
-    data["javascript_calls"] = call_interceptor.get_calls()
+    data["api_calls"] = call_interceptor.get_calls()
     call_interceptor.clear_calls()
         
     return data, last_usage_time

@@ -5,19 +5,22 @@ import json
 import trio
 import os
 from types import ModuleType
+from api_call_collector import ApiCallCollector
 
 with open(os.path.dirname(os.path.realpath(__file__)) + "/intercept-api-calls.js") as file:
     INTERCEPT_CALLS_SCRIPT = file.read()
 
 class APICallInterceptor:
-    driver: WebDriver
-    calls: list
-    script_loaded: bool
+    "An API Interceptor interacts with the browser (through the CDP protocol) and intercepts certain Browser API calls as either JavaScript calls or CDP events."
 
-    def __init__(self, driver: WebDriver):
-        self.calls = list()
+    driver: WebDriver
+    script_loaded: bool
+    collectors: list[ApiCallCollector]
+
+    def __init__(self, driver: WebDriver, collectors: list[ApiCallCollector]):
         self.driver = driver
         self.script_loaded = False
+        self.collectors = collectors
 
     @asynccontextmanager
     async def _open_cdp_session(self, nursery: trio.Nursery):
@@ -41,35 +44,60 @@ class APICallInterceptor:
         finally:
             await conn.aclose()
 
-    async def _handle_target_created(self, session: CdpSession, conn: CdpConnection, devtools: ModuleType, nursery: trio.Nursery):
+    async def _handle_target_created(self, event: any, conn: CdpConnection, devtools: ModuleType, nursery: trio.Nursery):
         """
         Event handler for the Target.targetCreated and Target.attachedToTarget events.
         Creates new sessions for each target discovered and initializes them.
         """
-        async for event in session.listen(devtools.target.TargetCreated, devtools.target.AttachedToTarget):
-            target_id = event.target_info.target_id
+        assert isinstance(event, (devtools.target.TargetCreated, devtools.target.AttachedToTarget))
+        target_id = event.target_info.target_id
 
-            # Create only one session per target
-            found_session = next((session for session in conn.sessions.values() if session.target_id == target_id), None)
-            if found_session is None:
-                if isinstance(event, devtools.target.TargetCreated):
-                    # Target created but not attached: attach and create new session
-                    new_session = await conn.connect_session(target_id)
-                else:
-                    # Target attached: create new session only
-                    new_session = CdpSession(conn.ws, event.session_id, target_id)
-                    conn.sessions[event.session_id] = new_session
-                await self._init_session(conn, new_session, devtools, nursery, target_type=event.target_info.type_)
+        # Create only one session per target
+        found_session = next((session for session in conn.sessions.values() if session.target_id == target_id), None)
+        if found_session is None:
+            if isinstance(event, devtools.target.TargetCreated):
+                # Target created but not attached: attach and create new session
+                new_session = await conn.connect_session(target_id)
+            else:
+                # Target attached: create new session only
+                new_session = CdpSession(conn.ws, event.session_id, target_id)
+                conn.sessions[event.session_id] = new_session
+            await self._init_session(conn, new_session, devtools, nursery, target_type=event.target_info.type_)
 
-    async def _handle_binding_called(self, session: CdpSession, devtools: ModuleType):
+    async def _handle_binding_called(self, event, devtools: ModuleType):
         """
         Event handler for the Runtime.bindingCalled event.
-        Saves all payloads in `self.calls`.
         """
-        async for event in session.listen(devtools.runtime.BindingCalled):
-            if event.name == "calledAPIEvent":
+        assert isinstance(event, devtools.runtime.BindingCalled)
+        if event.name == "calledAPIEvent":
+            for collector in self.collectors:
                 payload = json.loads(event.payload)
-                self.calls.append(payload)
+                if payload["description"] in collector.js_calls_to_listen:
+                    await collector.handle_js_call(payload)
+
+    async def _handle_cdp_events(self, session: CdpSession, conn: CdpConnection, devtools: ModuleType, nursery: trio.Nursery):
+        """
+        Event handler for the CDP events.
+        """
+        main_events = [devtools.runtime.BindingCalled, devtools.target.TargetCreated, devtools.target.AttachedToTarget]
+        collector_events = [event_type for collector in self.collectors for event_type in collector.cdp_events_to_listen]
+        events_to_listen = set(main_events + collector_events)
+        async for event in session.listen(*events_to_listen):
+            # Handle BindingCalled events
+            if isinstance(event, devtools.runtime.BindingCalled):
+                nursery.start_soon(self._handle_binding_called, event, devtools)
+                # await self._handle_binding_called(event, devtools)
+
+            # Handle TargetCreated and AttachedToTarget events
+            if isinstance(event, (devtools.target.TargetCreated, devtools.target.AttachedToTarget)):
+                nursery.start_soon(self._handle_target_created, event, conn, devtools, nursery)
+                # await self._handle_target_created(event, conn, devtools, nursery)
+
+            # Handle events for each collector
+            for collector in self.collectors:
+                if len(collector.cdp_events_to_listen) > 0 and isinstance(event, tuple(collector.cdp_events_to_listen)):
+                    nursery.start_soon(collector.handle_cdp_event, event)
+                    # await collector.handle_cdp_event(event)
 
     async def _init_session(self, conn: CdpConnection, session: CdpSession, devtools: ModuleType, nursery: trio.Nursery, target_type = "unknown"):
         """
@@ -79,8 +107,7 @@ class APICallInterceptor:
         await session.execute(devtools.target.set_auto_attach(auto_attach=True, wait_for_debugger_on_start=True, flatten=True))
 
         # Start event listener tasks
-        nursery.start_soon(self._handle_target_created, session, conn, devtools, nursery)
-        nursery.start_soon(self._handle_binding_called, session, devtools)
+        nursery.start_soon(self._handle_cdp_events, session, conn, devtools, nursery)
 
         # Add binding for recording API calls
         await session.execute(devtools.runtime.add_binding(name="calledAPIEvent"))
@@ -95,6 +122,10 @@ class APICallInterceptor:
         # Enable runtime event logging (needed for Runtime.bindingCalled event)
         await session.execute(devtools.runtime.enable())
 
+        # Initialize collectors for session
+        for collector in self.collectors:
+            await collector.init(session)
+
         # Resume only after having initialized everything
         await session.execute(devtools.runtime.run_if_waiting_for_debugger())
 
@@ -106,15 +137,28 @@ class APICallInterceptor:
         """
         async with trio.open_nursery() as nursery:
             async with self._open_cdp_session(nursery) as (conn, session, devtools):
+                # Update devtools object for collectors
+                for collector in self.collectors:
+                    collector.devtools = devtools
+
+                # Initialize main session
                 await self._init_session(conn, session, devtools, nursery, target_type="page")
 
                 try:
                     yield conn, session, devtools
                 finally:
+                    # Block finished: stop nursery tasks
                     nursery.cancel_scope.cancel()
 
-    def get_calls(self):
-        return self.calls.copy()
+    def get_calls(self) -> dict:
+        return {
+            collector.name: {
+                "javascript_functions": collector.js_calls.copy(),
+                "cdp_events": collector.cdp_events.copy()
+            }
+            for collector in self.collectors
+        }
     
     def clear_calls(self):
-        self.calls.clear()
+        for collector in self.collectors:
+            collector.clear_calls()

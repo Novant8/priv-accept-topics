@@ -19,16 +19,17 @@
     return res ? res[2] : "UNKNOWN_SOURCE";
   }
 
-  const interceptFunctionCall = function (elementType, funcName) {
+  const interceptFunctionCall = function (elementType, funcName, funcFilter) {
     // save the original function using a closure
-    console_log(`Intercepting ${elementType.name}.${funcName}`);
-    const origFunc = elementType.prototype[funcName];
+    const calledFunc = elementType ? `${elementType.name}.${funcName}` : funcName
+    console_log(`Intercepting ${calledFunc}`);
+    const element = elementType?.prototype || self;
+    const origFunc = element[funcName];
     // overwrite the object method with our own
-    Object.defineProperty(elementType.prototype, funcName, {
+    Object.defineProperty(element, funcName, {
       value: function () {
         // execute the original function
         const retVal = origFunc.apply(this, arguments);
-        const calledFunc = `${elementType.name}.${funcName}`;
         // check and enforce the limits
         // increment the call countl init if needed
         accessCounts[calledFunc] = (accessCounts[calledFunc] || 0) + 1;
@@ -36,7 +37,7 @@
         if (callCnt >= MAX_NUM_CALLS_TO_INTERCEPT) {
           console_log(`Reached max number of calls for ${calledFunc}: ${callCnt}`);
           // revert the function to its original state
-          Object.defineProperty(elementType.prototype, funcName, {
+          Object.defineProperty(element, funcName, {
             value: function () {return origFunc.apply(this, arguments);}
           });
           return retVal;
@@ -52,10 +53,13 @@
           source,
           frameUrl
         };
-        console_log(`Calling calledAPIEvent with ${JSON.stringify(callDetails)}`);
-        // send the call details to the node context
-        // @ts-ignore
-        window.calledAPIEvent(JSON.stringify(callDetails));
+        // register function call event only if it satisfies the given filter (if any)
+        if (typeof funcFilter !== "function" || funcFilter(callDetails)) {
+          console_log(`Calling calledAPIEvent with ${JSON.stringify(callDetails)}`);
+          // send the call details to the node context
+          // @ts-ignore
+          window.calledAPIEvent(JSON.stringify(callDetails));
+        }
         return retVal;
       }
     });
@@ -63,13 +67,14 @@
   const interceptPropAccess = function (elementType, propertyName) {
     // Limit api calls to intercept
     // save the original property descriptor using a closure
+    const element = elementType === "self" ? self : elementType.prototype;
     const origObjPropDesc = Object.getOwnPropertyDescriptor(
-      elementType.prototype,
+      element,
       propertyName
     );
     // log property name
-    const accessedProp = `${elementType.name}.${propertyName}`
-    Object.defineProperty(elementType.prototype, propertyName, {
+    const accessedProp = `${elementType.name || elementType}.${propertyName}`
+    Object.defineProperty(element, propertyName, {
       enumerable: true,
       configurable: true,
       get: function () {
@@ -80,7 +85,7 @@
         if (accessCnt >= MAX_NUM_CALLS_TO_INTERCEPT) {
           console_log(`Reached max number of accesses for ${accessedProp}: ${accessCnt} `);
           // revert the setter to its original state
-          Object.defineProperty(elementType.prototype, propertyName, {
+          Object.defineProperty(element, propertyName, {
             get: function () {return origObjPropDesc.get.call(this);}
           });
           return;
@@ -110,7 +115,7 @@
         if (accessCnt >= MAX_NUM_CALLS_TO_INTERCEPT) {
           console_log(`Reached max number of accesses for ${accessedProp}: ${accessCnt} `);
           // revert the setter to its original state
-          Object.defineProperty(elementType.prototype, propertyName, {
+          Object.defineProperty(element, propertyName, {
             set: function () {return origObjPropDesc.set.call(this, value);}
           });
           return;
@@ -134,12 +139,25 @@
   
   const api_calls = [
     {
+      "elementType": SharedStorage,
+      "funcNames": [
+          "append",
+          "get",
+          "set",
+          "clear",
+          "delete"
+      ],
+      "propNames": []
+    },
+    {
         "elementType": Navigator,
         "funcNames": [
             "joinAdInterestGroup",
             "updateAdInterestGroups",
             "leaveAdInterestGroup",
-            "runAdAuction"
+            "runAdAuction",
+            "hasPrivateToken",
+            "hasRedemptionRecord"
         ],
         "propNames": []
     },
@@ -149,12 +167,31 @@
             "browsingTopics"
         ],
         "propNames": []
+    },
+    {
+      "elementType": undefined,
+      "funcNames": [
+        "fetch",
+        "open"
+      ],
+      "propNames": [],
+      "funcFilter": function (callDetails) {
+        switch (callDetails["description"]) {
+          case "fetch":
+            // register only those fetch calls thet include options relevant to the Privacy Sandbox
+            const FETCH_PS_PROPERTIES = [ "browsingTopics", "attributionReporting", "privateToken" ];
+            const args = callDetails["args"];
+            return typeof args[1] === "object" && FETCH_PS_PROPERTIES.some(prop => args[1].hasOwnProperty(prop));
+          case "open":
+            return args.some(arg => typeof arg === "string" && arg.includes("attributionsrc"))
+        }
+      }
     }
   ];
 
-  for (const { elementType, funcNames, propNames } of api_calls) {
+  for (const { elementType, funcNames, propNames, funcFilter } of api_calls) {
     for (const funcName of funcNames)
-      interceptFunctionCall(elementType, funcName);
+      interceptFunctionCall(elementType, funcName, funcFilter);
     for (const propName of propNames)
       interceptPropAccess(elementType, propName);
   }
