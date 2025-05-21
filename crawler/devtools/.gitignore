@@ -1,2 +1,5 @@
 *.pdl
 *.json
+
+# Version outputs
+v*

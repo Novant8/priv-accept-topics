@@ -768,7 +768,18 @@ class CdpEvent:
                                for p in self.parameters)
         code += indent(from_json, 12)
         code += '\n'
-        code += indent(')', 8)
+        code += indent(')', 8) + '\n\n'
+
+        def_to_json = dedent(f'''\
+            def to_json(self):
+                json = dict()
+                json['name'] = '{self.domain}.{self.name}'
+        ''')
+        assigns = (p.generate_to_json(dict_='json') for p in self.parameters)
+        def_to_json += indent('\n'.join(assigns), 4)
+        def_to_json += '\n'
+        def_to_json += indent('return json', 4)
+        code += indent(def_to_json, 4)
         return code
 
     def get_refs(self):
