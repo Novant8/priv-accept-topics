@@ -416,7 +416,7 @@ def get_signature(element):
     return signature   
     
 
-def click_banner(driver, wordlist_file):
+def click_banner(driver, wordlist_file, screenshot_name="clicked_element"):
     words_list = set()
 
     for w in open(wordlist_file, "r").read().splitlines():
@@ -450,7 +450,7 @@ def click_banner(driver, wordlist_file):
                     if not os.path.exists(screenshot_dir):
                         os.makedirs(screenshot_dir)
                     try:
-                        candidate.screenshot("{}/clicked_element.png".format(screenshot_dir))
+                        candidate.screenshot("{}/{}.png".format(screenshot_dir, screenshot_name))
                     except Exception as e:
                         log("Exception in making screenshot: {}".format(e))
                 log("Clicking text: {}".format (candidate.text.lower().strip(" ✓›!\n")) )
