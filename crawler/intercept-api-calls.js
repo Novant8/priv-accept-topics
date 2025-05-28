@@ -18,18 +18,42 @@
     const res = stack[1].match(STACK_LINE_REGEXP);
     return res ? res[2] : "UNKNOWN_SOURCE";
   }
+  const getElementFromType = function (elementType) {
+    const levels = typeof elementType === "string" ? elementType.split(".") : [];
+    let element = globalThis;
+    console_log(levels);
+    for (const level of levels) {
+      if (typeof element === "undefined") {
+        console_log(`Cannot find element ${level} in ${elementType}`);
+        return;
+      }
+      element = element[level];
+      if (typeof element === "function") {
+        element = element.prototype;
+      }
+    }
+    return element;
+  }
 
   const interceptFunctionCall = function (elementType, funcName, funcFilter) {
     // save the original function using a closure
-    const calledFunc = elementType ? `${elementType.name}.${funcName}` : funcName
+    const element = getElementFromType(elementType);
+    if (typeof element === "undefined") {
+      return;
+    }
+    const calledFunc = elementType ? `${elementType}.${funcName}` : funcName
     console_log(`Intercepting ${calledFunc}`);
-    const element = elementType?.prototype || self;
     const origFunc = element[funcName];
     // overwrite the object method with our own
     Object.defineProperty(element, funcName, {
       value: function () {
         // execute the original function
-        const retVal = origFunc.apply(this, arguments);
+        let exception = undefined, retVal = undefined;
+        try {
+          retVal = origFunc.apply(this, arguments);
+        } catch (e) {
+          exception = e;
+        }
         // check and enforce the limits
         // increment the call countl init if needed
         accessCounts[calledFunc] = (accessCounts[calledFunc] || 0) + 1;
@@ -40,6 +64,11 @@
           Object.defineProperty(element, funcName, {
             value: function () {return origFunc.apply(this, arguments);}
           });
+          if (exception) {
+            // if the original function threw an exception, rethrow it
+            console_log(`Throwing original exception from ${calledFunc}: ${exception}`);
+            throw exception;
+          }
           return retVal;
         }
         // we still haven't reached the limit; we intercept the call
@@ -50,6 +79,7 @@
           accessType: "call",
           args: arguments,
           retVal,
+          exception,
           source,
           frameUrl
         };
@@ -58,7 +88,11 @@
           console_log(`Calling calledAPIEvent with ${JSON.stringify(callDetails)}`);
           // send the call details to the node context
           // @ts-ignore
-          window.calledAPIEvent(JSON.stringify(callDetails));
+          globalThis.calledAPIEvent(JSON.stringify(callDetails));
+        }
+        if (exception) {
+          // if the original function threw an exception, rethrow it
+          throw exception;
         }
         return retVal;
       }
@@ -67,13 +101,17 @@
   const interceptPropAccess = function (elementType, propertyName) {
     // Limit api calls to intercept
     // save the original property descriptor using a closure
-    const element = elementType === "self" ? self : elementType.prototype;
+    const element = getElementFromType(elementType);
+    if (typeof element === "undefined") {
+      console_log(`Cannot find element ${level} in ${elementType}`);
+      return;
+    }
     const origObjPropDesc = Object.getOwnPropertyDescriptor(
       element,
       propertyName
     );
     // log property name
-    const accessedProp = `${elementType.name || elementType}.${propertyName}`
+    const accessedProp = elementType ? `${elementType}.${propertyName}` : propertyName;
     Object.defineProperty(element, propertyName, {
       enumerable: true,
       configurable: true,
@@ -102,7 +140,7 @@
         };
         // send the call details to the node context
         // @ts-ignore
-        window.calledAPIEvent(JSON.stringify(callDetails));
+        globalThis.calledAPIEvent(JSON.stringify(callDetails));
         return returnVal;
       },  // TODO
       set: function (value) {
@@ -132,25 +170,34 @@
         };
         // send the call details to the node context
         // @ts-ignore
-        window.calledAPIEvent(JSON.stringify(callDetails));
+        globalThis.calledAPIEvent(JSON.stringify(callDetails));
       },
     });
   };
   
   const api_calls = [
     {
-      "elementType": SharedStorage,
+      "elementType": "SharedStorage",
       "funcNames": [
           "append",
           "get",
           "set",
           "clear",
-          "delete"
+          "delete",
+          "batchUpdate",
+          "createWorklet"
       ],
       "propNames": []
     },
     {
-        "elementType": Navigator,
+      "elementType": "SharedStorageWorklet",
+      "funcNames": [
+          "addModule"
+      ],
+      "propNames": []
+    },
+    {
+        "elementType": "Navigator",
         "funcNames": [
             "joinAdInterestGroup",
             "updateAdInterestGroups",
@@ -162,9 +209,11 @@
         "propNames": []
     },
     {
-        "elementType": Document,
+        "elementType": "Document",
         "funcNames": [
-            "browsingTopics"
+            "browsingTopics",
+            "requestStorageAccess",
+            "requestStorageAccessFor"
         ],
         "propNames": []
     },
@@ -179,13 +228,20 @@
         switch (callDetails["description"]) {
           case "fetch":
             // register only those fetch calls thet include options relevant to the Privacy Sandbox
-            const FETCH_PS_PROPERTIES = [ "browsingTopics", "attributionReporting", "privateToken" ];
+            const FETCH_PS_PROPERTIES = [ "browsingTopics", "attributionReporting", "privateToken", "sharedStorageWritable" ];
             const args = callDetails["args"];
             return typeof args[1] === "object" && FETCH_PS_PROPERTIES.some(prop => args[1].hasOwnProperty(prop));
           case "open":
             return args.some(arg => typeof arg === "string" && arg.includes("attributionsrc"))
         }
       }
+    },
+    {
+      "elementType": "CredentialsContainer",
+      "funcNames": [
+        "get",
+      ],
+      "propNames": []
     }
   ];
 

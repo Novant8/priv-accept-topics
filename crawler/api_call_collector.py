@@ -121,10 +121,7 @@ class ApiCallCollector(ABC):
         """
         Saves a CDP event's data.
         """
-        try:
-            self.cdp_events.append(event.to_json())
-        except AttributeError:
-            print("Warning: CDP Event does not have a to_json() function.")
+        self.cdp_events.append(event)
     
     def clear_cdp_events(self):
         """

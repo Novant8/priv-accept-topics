@@ -24,6 +24,10 @@ from api_collectors.topics import TopicsApiCallCollector
 from api_collectors.protected_audience import ProtectedAudienceApiCallCollector
 from api_collectors.private_state_tokens import PrivateStateTokensApiCallCollector
 from api_collectors.attribution_reporting import AttributionReportingApiCallCollector
+from api_collectors.related_website_sets import RelatedWebsiteSetsApiCallCollector
+from api_collectors.shared_storage import SharedStorageApiCallCollector
+from api_collectors.fenced_frames import FencedFramesApiCallCollector
+from api_collectors.fedcm import FedCMApiCallCollector
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -90,9 +94,8 @@ async def main():
     if user_agent is not None:
         USER_AGENT_DEFAULT = user_agent
 
-    if detect_topics:
-        # Enable Topics API
-        options.add_argument("enable-privacy-sandbox-ads-apis")
+    # Enable Privacy Sandbox APIs 
+    options.add_argument("enable-privacy-sandbox-ads-apis")
         
     if lang is not None:
         stats["lang"] = lang
@@ -270,7 +273,11 @@ def init_api_call_interceptor(driver: WebDriver):
         TopicsApiCallCollector(),
         ProtectedAudienceApiCallCollector(),
         PrivateStateTokensApiCallCollector(),
-        AttributionReportingApiCallCollector()
+        AttributionReportingApiCallCollector(),
+        RelatedWebsiteSetsApiCallCollector(),
+        SharedStorageApiCallCollector(),
+        FencedFramesApiCallCollector(),
+        FedCMApiCallCollector()
     ]
     return APICallInterceptor(driver, collectors)
 

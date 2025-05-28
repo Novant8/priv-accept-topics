@@ -99,6 +99,13 @@ class APICallInterceptor:
                     nursery.start_soon(collector.handle_cdp_event, event)
                     # await collector.handle_cdp_event(event)
 
+    async def _handle_execution_contexts(self, session: CdpSession, devtools: ModuleType):
+        """
+        Handles the Runtime.executionContextCreated event to initialize collectors for each execution context.
+        """
+        async for event in session.listen(devtools.runtime.ExecutionContextCreated):
+            await session.execute(devtools.runtime.evaluate(expression=INTERCEPT_CALLS_SCRIPT, context_id=event.context.id_))
+
     async def _init_session(self, conn: CdpConnection, session: CdpSession, devtools: ModuleType, nursery: trio.Nursery, target_type = "unknown"):
         """
         Performs the preliminary steps to track function calls within the given session
@@ -151,13 +158,16 @@ class APICallInterceptor:
                     nursery.cancel_scope.cancel()
 
     def get_calls(self) -> dict:
-        return {
-            collector.name: {
-                "javascript_functions": collector.js_calls.copy(),
-                "cdp_events": collector.cdp_events.copy()
+        try:
+            return {
+                collector.name: {
+                    "javascript_functions": collector.js_calls.copy(),
+                    "cdp_events": [ e.to_json() for e in collector.cdp_events ],
+                }
+                for collector in self.collectors
             }
-            for collector in self.collectors
-        }
+        except AttributeError:
+            print("Warning: CDP Event does not have a to_json() function.")
     
     def clear_calls(self):
         for collector in self.collectors:
