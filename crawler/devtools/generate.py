@@ -773,7 +773,7 @@ class CdpEvent:
         def_to_json = dedent(f'''\
             def to_json(self):
                 json = dict()
-                json['name'] = '{self.domain}.{self.name}'
+                json['cdp_event_name'] = '{self.domain}.{self.name}'
         ''')
         assigns = (p.generate_to_json(dict_='json') for p in self.parameters)
         def_to_json += indent('\n'.join(assigns), 4)
