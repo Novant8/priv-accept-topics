@@ -314,8 +314,8 @@ def clear_status():
     else:
         log("Warning: cannot clean DNS and socket cache in headless mode.")
 
-def search_iframe_banner(driver, wordlist_file=deny_words if deny else accept_words):
-    banner_data = click_banner(driver, wordlist_file)
+def search_iframe_banner(driver, wordlist_file=deny_words if deny else accept_words, screenshot_name="clicked_element"):
+    banner_data = click_banner(driver, wordlist_file, screenshot_name=screenshot_name)
     if banner_data.get("clicked_element"):
         driver.switch_to.default_content()
         return banner_data
@@ -324,7 +324,7 @@ def search_iframe_banner(driver, wordlist_file=deny_words if deny else accept_wo
         try:
             log(f"Searching for banner in iframe: {iframe.id}")
             driver.switch_to.frame(iframe)
-            internal_banner_data = search_iframe_banner(driver, wordlist_file)
+            internal_banner_data = search_iframe_banner(driver, wordlist_file, screenshot_name=screenshot_name)
             if internal_banner_data:
                 return internal_banner_data
         except:
@@ -333,17 +333,16 @@ def search_iframe_banner(driver, wordlist_file=deny_words if deny else accept_wo
             driver.switch_to.default_content()
     return None
 
+
 def double_click_banner(driver):
     # First click: option_words
     log("Searching for Options button")
-    first_result = search_iframe_banner(driver, wordlist_file=option_words)
+    first_result = search_iframe_banner(driver, wordlist_file=option_words, screenshot_name="option_button")
     if first_result is None or not first_result.get("clicked_element"):
         return first_result, None
-    
     time.sleep(timeout)
-    
     log("Searching for {} button".format("Deny" if deny else "Accept"))
-    second_result = search_iframe_banner(driver)
+    second_result = search_iframe_banner(driver, screenshot_name="deny_button" if deny else "accept_button")
     return first_result, second_result
 
 def get_data(driver, call_interceptor, after = 0):
@@ -431,7 +430,7 @@ def click_banner(driver, wordlist_file):
 
     for c in contents:
         try:
-            if c.text.lower().strip(" ✓›!\n") in words_list:
+            if c.text.lower().strip(" ✓›!→x>\n").replace('\n', ' ') in words_list:
                 candidates.append(c)
                 banner_data["candidate_elements"].append({"id": c.id,
                                                           "tag_name": c.tag_name,

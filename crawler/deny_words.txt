@@ -28,6 +28,7 @@ decline all
 decline optional cookies
 deny
 deny all cookies
+disagree to all
 disagree
 disagree and close
 do not accept
@@ -78,7 +79,7 @@ rechazar todo
 rechazar y cerrar
 rechazarias todas
 rechazarlas todas
-reejct all cookies
+reject all cookies
 refuse all
 refuse non-essential cookies
 refuser
@@ -121,3 +122,45 @@ uniquement les essentiels
 use necessary cookies only
 weiter ohne einwilligung
 weiter ohne zustimmung
+refuser tous les cookies
+cookies nécessaires uniquement
+cookies nècessaires uniquement
+rejeter
+refuser les cookies non nècessaires
+refuser les cookies non nécessaires
+je continue sans accepter
+refuser et fermer
+non, accepter les nécessaires uniquement
+non, accepter les nècessaires uniquement
+accepter les cookies nécessaires 
+accepter les cookies nècessaires 
+accept only essential 
+solo i cookies necessari
+necessary only
+nega il consenso
+solo necessari
+solo cookie essenziali
+only essential cookie
+rechazarias
+denegar
+reject them all
+disallow all
+reject optional
+aceptar solo lo imprescindible
+solo cookie obbligatori
+negar todas
+denegar todas
+no consentir
+Accept only those necessary
+do not consent
+accept necessary
+only use essential cookies
+i do not accept cookies
+accept necessary only
+alles ablehnen
+reject all except essential
+nur notwendige cookies verwenden
+nicht notwendige cookies ablehnen
+cookies ablehnen
+alle nicht essenziellen cookies ablehnen
+nur funktionale cookies

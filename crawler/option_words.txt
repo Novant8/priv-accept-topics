@@ -95,7 +95,7 @@ options
 opzioni cookie
 paramètres des cookies
 paramétres des cookies
-paramétrer
+paramétrerf
 paramètrer
 paramétrer les cookies
 paramètrer les cookies
@@ -129,3 +129,15 @@ voir en détail
 weitere einstellungen
 your cookie settings
 view options
+más optiones
+màs optiones
+settings
+gestionar ajustes
+Opciones de gestión
+Opciones de gestiòn
+show purposes
+manage my settings
+gestisci impostazioni dei cookie
+mehr
+impostazioni individuali
+cookies anpassen
