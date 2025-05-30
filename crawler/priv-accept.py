@@ -28,6 +28,7 @@ from api_collectors.related_website_sets import RelatedWebsiteSetsApiCallCollect
 from api_collectors.shared_storage import SharedStorageApiCallCollector
 from api_collectors.fenced_frames import FencedFramesApiCallCollector
 from api_collectors.fedcm import FedCMApiCallCollector
+from api_collectors.private_aggregation import PrivateAggregationApiCallCollector
 
 # Parse Vars
 parser = argparse.ArgumentParser()
@@ -278,7 +279,8 @@ def init_api_call_interceptor(driver: WebDriver):
         RelatedWebsiteSetsApiCallCollector(),
         SharedStorageApiCallCollector(),
         FencedFramesApiCallCollector(),
-        FedCMApiCallCollector()
+        FedCMApiCallCollector(),
+        PrivateAggregationApiCallCollector()
     ]
     return APICallInterceptor(driver, collectors, user_data_dir)
 

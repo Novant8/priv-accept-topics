@@ -1,7 +1,7 @@
 // Adapted from https://github.com/ua-reduction/ua-client-hints-crawler/blob/ae68255322eaf23e7d06e81798bcd8c150bb7961/helpers/fingerprintDetection.js
 
 (function() {
-  const frameUrl = document.location.href
+  const frameUrl = typeof document !== "undefined" ? document.location.href : "";
   const MAX_NUM_CALLS_TO_INTERCEPT = 100;
   const STACK_LINE_REGEXP = /(\()?(http[^)]+):[0-9]+:[0-9]+(\))?/;
   let accessCounts = {};  // keep the access and call counts for each property and function
