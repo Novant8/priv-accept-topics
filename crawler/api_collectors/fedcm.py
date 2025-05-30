@@ -38,3 +38,7 @@ class FedCMApiCallCollector(ApiCallCollector):
 
     async def handle_cdp_event(self, event):
         self.register_cdp_event(event)
+
+    async def handle_db_connection(self, connection):
+        # Do nothing
+        return

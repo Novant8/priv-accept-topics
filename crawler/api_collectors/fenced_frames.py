@@ -42,3 +42,7 @@ class FencedFramesApiCallCollector(ApiCallCollector):
             fenced_frame_created = next((e for e in self.cdp_events if e.target_info.target_id == event.target_info.target_id), None)
             if fenced_frame_created is not None:
                 self.register_cdp_event(event)
+
+    async def handle_db_connection(self, connection):
+        # Do nothing
+        return

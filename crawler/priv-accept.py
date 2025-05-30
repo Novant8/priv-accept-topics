@@ -127,15 +127,13 @@ async def main():
     driver.set_page_load_timeout(connection_timeout)
     time.sleep(timeout)
 
-    call_interceptor = init_api_call_interceptor(driver)
-
-    if detect_topics:
-        global user_data_dir
-        driver.get("chrome://version")
-        user_data_dir = "/".join(driver.find_element(By.ID, "profile_path").text.split("/")[:-1])
-        log("Changed user dir to {}".format(user_data_dir)) 
-        options.add_argument("user-data-dir={}".format(user_data_dir))
-        get_data(driver, call_interceptor)
+    # Retrieve user data directory from browser
+    global user_data_dir
+    driver.get("chrome://version")
+    user_data_dir = "/".join(driver.find_element(By.ID, "profile_path").text.split("/")[:-1])
+    log("Changed user dir to {}".format(user_data_dir)) 
+    options.add_argument("user-data-dir={}".format(user_data_dir))
+    get_data(driver)
 
     # Set network conditions
     if network_conditions:
@@ -144,6 +142,8 @@ async def main():
                                                                     "downloadThroughput": download,
                                                                     "uploadThroughput": upload,
                                                                     "offline": False})
+    
+    call_interceptor = init_api_call_interceptor(driver)
 
     #  Go to the page, first visit
     stats["pre-visit"] = pre_visit
@@ -269,6 +269,7 @@ async def main():
     log("All Done")
 
 def init_api_call_interceptor(driver: WebDriver):
+    global user_data_dir
     collectors = [
         TopicsApiCallCollector(),
         ProtectedAudienceApiCallCollector(),
@@ -279,7 +280,7 @@ def init_api_call_interceptor(driver: WebDriver):
         FencedFramesApiCallCollector(),
         FedCMApiCallCollector()
     ]
-    return APICallInterceptor(driver, collectors)
+    return APICallInterceptor(driver, collectors, user_data_dir)
 
 def first_capital(s: str):
     return s[0].upper() + s[1:].lower()
@@ -345,7 +346,7 @@ def double_click_banner(driver):
     second_result = search_iframe_banner(driver, screenshot_name="deny_button" if deny else "accept_button")
     return first_result, second_result
 
-def get_data(driver, call_interceptor, after = 0):
+def get_data(driver, call_interceptor = None, after = 0):
 
     #data = {"urls": [],"cookies": driver.get_cookies()}  # Worse than next line
     if full_net_log:
@@ -378,8 +379,9 @@ def get_data(driver, call_interceptor, after = 0):
         except FileNotFoundError:
             data["topics_api_usages"] = []
 
-    data["api_calls"] = call_interceptor.get_calls()
-    call_interceptor.clear_calls()
+    if call_interceptor is not None:
+        data["api_calls"] = call_interceptor.get_calls()
+        call_interceptor.clear_calls()
         
     return data, last_usage_time
 

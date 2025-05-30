@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 import json
 import trio
 import os
+import shutil
 from types import ModuleType
 from api_call_collector import ApiCallCollector
+from lib.db import db_connection
 
 with open(os.path.dirname(os.path.realpath(__file__)) + "/intercept-api-calls.js") as file:
     INTERCEPT_CALLS_SCRIPT = file.read()
@@ -16,11 +18,13 @@ class APICallInterceptor:
     driver: WebDriver
     script_loaded: bool
     collectors: list[ApiCallCollector]
+    user_data_dir: str
 
-    def __init__(self, driver: WebDriver, collectors: list[ApiCallCollector]):
+    def __init__(self, driver: WebDriver, collectors: list[ApiCallCollector], user_data_dir: str = "~/.config/google-chrome"):
         self.driver = driver
         self.script_loaded = False
         self.collectors = collectors
+        self.user_data_dir = os.path.expanduser(user_data_dir)
 
     @asynccontextmanager
     async def _open_cdp_session(self, nursery: trio.Nursery):
@@ -125,6 +129,9 @@ class APICallInterceptor:
 
             # Inject 'intercept-functions.js' script on all new documents (pages and iframes)
             await session.execute(devtools.page.add_script_to_evaluate_on_new_document(source=INTERCEPT_CALLS_SCRIPT))
+        else:
+            # For service workers/worklets, execute the script as soon as an execution context is created
+            nursery.start_soon(self._handle_execution_contexts, session, devtools)
 
         # Enable runtime event logging (needed for Runtime.bindingCalled event)
         await session.execute(devtools.runtime.enable())
@@ -136,6 +143,25 @@ class APICallInterceptor:
         # Resume only after having initialized everything
         await session.execute(devtools.runtime.run_if_waiting_for_debugger())
 
+    async def _read_from_db(self):
+        """
+        Reads data from the database for each collector for which a database name is specified.
+        """
+        for collector in self.collectors:
+            if collector.db_name is not None:
+                # Copy the database file to a temporary location to avoid locking issues
+                real_db_path = f"{self.user_data_dir}/Default/{collector.db_name}"
+                tmp_db_path = f"/tmp/{collector.db_name}"
+                try:
+                    shutil.copy(real_db_path, tmp_db_path)
+                except FileNotFoundError as e:
+                    # Database not found: skip reading from it
+                    return
+
+                with db_connection(tmp_db_path) as conn:
+                    await collector.handle_db_connection(conn)
+                os.remove(tmp_db_path)
+
     @asynccontextmanager
     async def intercept(self):
         """
@@ -143,7 +169,7 @@ class APICallInterceptor:
         It does so by opening a CDP connection to the browser
         """
         async with trio.open_nursery() as nursery:
-            async with self._open_cdp_session(nursery) as (conn, session, devtools):
+            async with self._open_cdp_session(nursery) as (conn, session, devtools): 
                 # Update devtools object for collectors
                 for collector in self.collectors:
                     collector.devtools = devtools
@@ -154,7 +180,10 @@ class APICallInterceptor:
                 try:
                     yield conn, session, devtools
                 finally:
-                    # Block finished: stop nursery tasks
+                    # Extract data from databases
+                    await self._read_from_db()
+                    
+                    # Stop nursery tasks
                     nursery.cancel_scope.cancel()
 
     def get_calls(self) -> dict:
@@ -163,6 +192,7 @@ class APICallInterceptor:
                 collector.name: {
                     "javascript_functions": collector.js_calls.copy(),
                     "cdp_events": [ e.to_json() for e in collector.cdp_events ],
+                    "db_data": collector.db_data.copy() if collector.db_data is not None else None
                 }
                 for collector in self.collectors
             }

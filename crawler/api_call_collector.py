@@ -1,7 +1,8 @@
 from selenium.webdriver.common.bidi.cdp import CdpSession
 from types import ModuleType
-from typing import Union
+from typing import Union, Optional
 from abc import ABC, abstractmethod
+from lib.db import DBConnection
 
 class ApiCallCollector(ABC):
     """
@@ -15,7 +16,7 @@ class ApiCallCollector(ABC):
     The name of the API being collected.
     """
 
-    _devtools: Union[ModuleType, None]
+    _devtools: Optional[ModuleType]
     """
     The Devtools object with command and event definitions.
     Should be None at the beginning but should be set right after establishing a CDP connection to the browser.
@@ -30,6 +31,11 @@ class ApiCallCollector(ABC):
     cdp_events: list[dict]
     """
     Collection of CDP events registered so far. Contains the event information as passed by the browser.
+    """
+
+    db_data: Optional[Union[list[dict], dict]]
+    """
+    Collection of data collected from a database.
     """
 
     js_calls_to_listen: list[str]
@@ -47,6 +53,11 @@ class ApiCallCollector(ABC):
     The events are specified as their types, as defined in the automatically-generated DevTools library.
     """
 
+    db_name: Optional[str]
+    """
+    Name of the database to connect to, if any, as saved in Chrome's configuration folder.
+    """
+
     def __init__(self):
         self.name = "unknown"
         self._devtools = None
@@ -54,6 +65,8 @@ class ApiCallCollector(ABC):
         self.cdp_events = []
         self.cdp_events_to_listen = []
         self.js_calls_to_listen = []
+        self.db_name = None
+        self.db_data = None
 
     @property
     def devtools(self):
@@ -108,6 +121,14 @@ class ApiCallCollector(ABC):
         The event object can be of any type defined in the pre-generated devtools library.
 
         **Note**: This function is called only for events that are specified in the `self.cdp_events_to_listen` array.
+        """
+        pass
+
+    @abstractmethod
+    async def handle_db_connection(self, conn: DBConnection):
+        """
+        Event listener for when the interceptor connects to the database.
+        The `conn` parameter can be used to execute SQL commands to retrieve data from the database.
         """
         pass
 
