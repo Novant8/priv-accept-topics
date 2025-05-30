@@ -59,7 +59,8 @@ parser.add_argument('--force_second_visit', action='store_true')
 parser.add_argument('--force_click_data', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
-parser.add_argument('--detect_topics', action='store_true')
+parser.add_argument('--detect_topics', action='store_true', deprecated=True)
+parser.add_argument('--custom_chromium', action='store_true')
 parser.add_argument('--xvfb', action='store_true')
 
 globals().update(vars(parser.parse_args()))
@@ -272,7 +273,7 @@ async def main():
 def init_api_call_interceptor(driver: WebDriver):
     global user_data_dir
     collectors = [
-        TopicsApiCallCollector(),
+        TopicsApiCallCollector(custom_chromium),
         ProtectedAudienceApiCallCollector(),
         PrivateStateTokensApiCallCollector(),
         AttributionReportingApiCallCollector(),
