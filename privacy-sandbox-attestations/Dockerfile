@@ -1,5 +1,5 @@
 # Stage 1: Generate Protobuf library for Python
-FROM buildpack-deps:bookworm as base
+FROM buildpack-deps:bookworm AS base
 
 RUN apt-get update && apt-get install --no-install-recommends --assume-yes protobuf-compiler
 
@@ -9,7 +9,7 @@ ADD privacy_sandbox_attestations.proto /opt/extract-allowed-domains
 RUN protoc /opt/extract-allowed-domains/privacy_sandbox_attestations.proto --proto_path /opt/extract-allowed-domains --python_out /opt/extract-allowed-domains
 
 # Stage 2: Final image, copy Python script and generated protobuf library
-FROM python:3.11.8 as final
+FROM python:3.11.8 AS final
 
 RUN mkdir /opt/extract-allowed-domains
 COPY --from=base /opt/extract-allowed-domains/privacy_sandbox_attestations_pb2.py /opt/extract-allowed-domains
