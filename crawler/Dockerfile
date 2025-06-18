@@ -3,13 +3,30 @@
 # Push with:
 # docker push <user>/priv-accept
 
-FROM python:3.13 AS builder
+ARG PYTHON_VERSION="3.13"
+ARG CHROME_VERSION="138.0.7204.4"
+ARG DEVTOOLS_VERSION="138"
 
-ARG CHROME_VERSION="122.0.6261.128"
-ARG DEVTOOLS_VERSION="122"
+FROM alpine/curl:latest AS downloader
+ARG CHROME_VERSION
 
-COPY ./devtools /build/devtools
+# Download Chrome browser, WITHOUT Privacy Sandbox Attestations
+RUN wget https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip \
+    && unzip chrome-linux64.zip -d /opt/google-chrome \
+    && rm -r /opt/google-chrome/chrome-linux64/PrivacySandboxAttestationsPreloaded \
+    && rm chrome-linux64.zip
 
+# Download Chromedriver
+RUN wget https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip \
+    && unzip chromedriver-linux64.zip -d /opt/google-chrome \
+    && rm chromedriver-linux64.zip
+
+FROM python:${PYTHON_VERSION} AS devtools-builder
+ARG CHROME_VERSION
+ARG DEVTOOLS_VERSION
+
+COPY ./devtools/*.py /build/devtools/
+COPY ./devtools/requirements.txt /build/devtools/
 RUN pip install -r /build/devtools/requirements.txt
 
 # Download browser_protocol.pdl and convert to JSON
@@ -23,11 +40,14 @@ RUN v8_revision=$(curl -sSL https://raw.githubusercontent.com/chromium/chromium/
     && python3 /build/devtools/convert_protocol_to_json.py /tmp/js_protocol.pdl /tmp/js_protocol.json --map_binary_to_string=true
 
 # Generate devtools bindings
-RUN mkdir /build/devtools/v${DEVTOOLS_VERSION} \
+RUN rm -rf /build/devtools/v${DEVTOOLS_VERSION} \
+    && mkdir /build/devtools/v${DEVTOOLS_VERSION} \
     && python3 /build/devtools/generate.py /tmp/browser_protocol.json /tmp/js_protocol.json /build/devtools/v${DEVTOOLS_VERSION}
 
-FROM python:3.13-slim AS runner
+FROM python:${PYTHON_VERSION}-slim AS runner
 LABEL maintainer="Priv Accept Team"
+ARG PYTHON_VERSION
+ARG DEVTOOLS_VERSION
 
 ENV PYTHONUNBUFFERED=1
 
@@ -40,13 +60,17 @@ ADD requirements.txt /opt/priv-accept
 RUN pip3 install -r /opt/priv-accept/requirements.txt
 
 # Add devtools bindings to Selenium package folder
-COPY --from=builder /build/devtools/v*/ /usr/local/lib/python3.14/site-packages/selenium/webdriver/common/devtools/
+COPY --from=devtools-builder /build/devtools/v${DEVTOOLS_VERSION} /usr/local/lib/python${PYTHON_VERSION}/site-packages/selenium/webdriver/common/devtools/v${DEVTOOLS_VERSION}
 
-# Add custom Chromium browser
-ADD ./chromium /opt/chromium-topics
+# Add Chrome browser and Chromedriver
+COPY --from=downloader /opt/google-chrome/chrome-linux64 /opt/google-chrome
+COPY --from=downloader /opt/google-chrome/chromedriver-linux64/chromedriver /opt/google-chrome
 
 ADD *.py /opt/priv-accept
 ADD *.js /opt/priv-accept
+ADD lib/*.py /opt/priv-accept/lib/
+ADD api_collectors/*.py /opt/priv-accept/api_collectors/
+ADD api_collectors/proto/*.py /opt/priv-accept/api_collectors/proto/
 ADD *_words.txt /root/
 ADD rum-speedindex.js /root/
 

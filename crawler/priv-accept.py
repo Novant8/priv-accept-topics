@@ -134,7 +134,6 @@ async def main():
     driver.get("chrome://version")
     user_data_dir = "/".join(driver.find_element(By.ID, "profile_path").text.split("/")[:-1])
     log("Changed user dir to {}".format(user_data_dir)) 
-    options.add_argument("user-data-dir={}".format(user_data_dir))
     get_data(driver)
 
     # Set network conditions

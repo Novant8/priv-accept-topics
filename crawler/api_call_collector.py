@@ -28,7 +28,7 @@ class ApiCallCollector(ABC):
     Contains the payloads passed by the interceptor.
     """
 
-    cdp_events: list[dict]
+    cdp_events: list[any]
     """
     Collection of CDP events registered so far. Contains the event information as passed by the browser.
     """

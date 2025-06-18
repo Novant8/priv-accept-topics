@@ -1,3 +1,4 @@
-selenium == 4.18.1
+selenium >= 4.33.0
 pyvirtualdisplay >= 3.0
 trio>=0.30.0
+protobuf>=6.31.1
