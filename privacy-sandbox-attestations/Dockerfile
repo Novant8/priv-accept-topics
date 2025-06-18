@@ -15,6 +15,7 @@ RUN mkdir /opt/extract-allowed-domains
 COPY --from=base /opt/extract-allowed-domains/privacy_sandbox_attestations_pb2.py /opt/extract-allowed-domains
 ADD extract_allowed_domains.py /opt/extract-allowed-domains
 ADD get_domain.py /opt/extract-allowed-domains
+ADD ps_api_map.json /opt/extract-allowed-domains
 
 ADD requirements.txt /opt/extract-allowed-domains
 RUN pip3 install -r /opt/extract-allowed-domains/requirements.txt
