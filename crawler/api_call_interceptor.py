@@ -156,7 +156,8 @@ class APICallInterceptor:
                     shutil.copy(real_db_path, tmp_db_path)
                 except FileNotFoundError as e:
                     # Database not found: skip reading from it
-                    return
+                    print(f"Warning: Could not read database at '{e.filename}'")
+                    continue
 
                 with db_connection(tmp_db_path) as conn:
                     await collector.handle_db_connection(conn)
