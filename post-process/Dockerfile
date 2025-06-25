@@ -1,9 +1,11 @@
-FROM python:3.11.8
+FROM python:3.11-slim
 
-RUN mkdir /opt/analyze-topics-api
-ADD . /opt/analyze-topics-api
+RUN apt update && apt install -y jq
 
-ADD requirements.txt /opt/analyze-topics-api
-RUN pip install -r /opt/analyze-topics-api/requirements.txt
+RUN mkdir /opt/priv-accept-post-process
+ADD *.py *.jq modules/ entrypoint.sh requirements.txt /opt/priv-accept-post-process/
 
-ENTRYPOINT [ "bash", "/opt/analyze-topics-api/entrypoint.sh" ]
+RUN pip install -r /opt/priv-accept-post-process/requirements.txt
+
+WORKDIR /opt/priv-accept-post-process
+ENTRYPOINT [ "bash", "entrypoint.sh" ]

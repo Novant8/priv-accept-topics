@@ -1,18 +1,21 @@
-# Topics API analysis tools
+# Privacy Sandbox analysis tools
 
-This folder encloses the tools used to extract the information useful for analysing the Topics API usage.
+This folder encloses the tools used to extract the information useful for analysing the Privacy Sandbox usage. For some tools it is necessary to have [**jq**](https://jqlang.org/) installed on your machine.
 
-## Domain extraction
+## 2LD domain extraction
 
-`extract-domains.py` extracts a list of all the unique second-level domains contacted by the browser during the visit of a single website.
+`extract-domains.jq` extracts a list of all the unique second-level domains contacted by the browser during the visit of a single website.
 
 ### Usage
 
 ```
-extract-domains.py <PRIV_ACCEPT_OUTPUT>
+jq -L modules -f extract_contacted_2ld.jq
+  --argjson visits <VISITS>
+  <PRIV_ACCEPT_OUTPUT>
 ```
 
 * The *Priv-Accept* output refers to the complete JSON output with full network logs active.
+* The `visits` argument is a JSON array of strings, containing the list of visits to consider (e.g., `["first","second"]`).
 
 ### Output
 
@@ -25,7 +28,7 @@ It prints on `stdout` the unique domains extracted from *Priv-Accept*'s output, 
 ### Usage
 
 ```
-attest-domain.py [--timeout TIMEOUT] [--user_agent USER_AGENT] <DOMAIN>
+python attest-domain.py [--timeout TIMEOUT] [--user_agent USER_AGENT] <DOMAIN>
 ```
 
 * `--timeout TIMEOUT`: time the request client awaits for a page to load. 
@@ -40,65 +43,66 @@ attested-domain2.com,"{""privacy_sandbox_attestations"": [...]}"
 ```
 If the domain is not *Attested*, nothing is printed.
 
-## Analyse Topics API
+## Post process output
 
-`analyze-topics-api.py` builds a more compact JSON file given *Priv-Accept*'s output and the list of *Allowed* and *Attested* sites found during the crawling.
+`post_process_output.jq` compacts *Priv-Accept*'s output into a single CSV line containing the data relevant for the analysis. It also extracts the list of *full* domains contacted during each visit into a `contacted_domains` field.
 
 ### Usage
 
 ```
-analyze-topics-api.py [-h] [--timeout TIMEOUT] [--attested_domains_file ATTESTED_DOMAINS_FILE]
-                      [--allowed_domains_file ALLOWED_DOMAINS_FILE]
-                      [--consent_managers_file CONSENT_MANAGERS_FILE] [--outfile OUTFILE]
-                      [--pretty_print]
-                      <INPUT_FILE>
+jq -L modules -f extract_contacted_2ld.jq
+  --argjson visits <VISITS>
+  --argjson fields <FIELDS
+  --arg position <POSITION>
+  --arg full_net_log <0|1>
+  <PRIV_ACCEPT_OUTPUT>
 ```
 
-* `--timeout TIMEOUT`: time the request client awaits for a page to load.
-* `--attested_domains_file ATTESTED_DOMAINS_FILE`: path to the list of *Attested* domains.
-* `--allowed_domains_file ALLOWED_DOMAINS_FILE`: path to the list of *Allowed* domains.
-* `--consent_managers_file CONSENT_MANAGERS_FILE`: path to the list of consent manager domains.
-* `--outfile OUTFILE`: path to where the final output should be produced.
-* `--pretty-print`: if enabled, the output file will be beautified and printed in multiple lines, otherwise the output will be printed minified in a single line.
+* The `visits` argument is a JSON array of strings containing the list of visits to consider, as specified in *Priv-Accept*'s output (e.g., `["first","second"]`).
+* The `fields` argument is a JSON array of strings containing the list of arguments to consider for each visit, as specified in *Priv-Accept*'s output (e.g., `["api_calls","contacted_domains"]`).
+* The `position` argument refers to the position of the website by popularity, according to the list used.
+* If `full_net_log` is set to 1, it indicates that the crawler collected the full network logs (with the `--full_net_log` option enabled). 
+
 
 ### Output
 
-A JSON file containing the most important information for the Topics API analysis, such as:
-* *(per-visit)* The collection of *Attested* and *Allowed* domains encountered.
-* *(per-visit)* The collection of consent managers encountered.
-* *(per-visit)* Whether Google Tag Manager (GTM) was found within the website during the visit.
-* *(per-visit)* The collection of Topics API usages detected.
-* Whether *Priv-Accept* has found and clicked a privacy banner.
-
-For example:
-
-```json
-{
-  "url": "https://website.com/",
-  "first": {
-    "attested_domains": [
-        "domain.com",
-        ...
-    ],
-    "allowed_domains": [...],
-    "consent_managers": [...],
-    "has_gtm": true,
-    "topics_api_usages": [
-        {
-            "context_origin_url": "https://calling-party.com",
-            "caller_source": "javascript",
-            "usage_time": 123456
-        }
-    ]
-  },
-  "second": {
-    ...
-  },
-  "banner_clicked": true
-}
+A single CSV line per JSON file, with the following format:
 ```
-The `first` property refers to the *Before-Accept* visit, whereas `second` refers to the *After-Accept* visit.
+position,website,{visit}_{field}
+```
+where `{visit}_{field}` is the combination of each visit with each field (e.g., `first_api_calls`, `first_contacted_domains`, etc.)
+
+## Merge CSV
+
+`merge-csv.py` merges two input CSV files into one, eventually adding a suffix of columns in common. The input files must have a header column, with at least one column in common to perform the *join* operation on.
+
+### Usage
+
+```
+python merge-csv.py [-h]
+  --join_on JOIN_ON [JOIN_ON ...]
+  [--join_type {left,right,outer,inner,cross,left_anti,right_anti}] 
+  [--suffix1 SUFFIX1] [--suffix2 SUFFIX2]
+  [--sorted] [--output OUTPUT]
+  file1 file2
+```
+
+* `file1` and `file2` are the paths to the two CSV files.
+* `join_on` specifies which columns to perform the join on. This column must be present in both files.
+* `join_type` specifies how the join is applied. Defaults to `inner`.
+* `suffix1` and `suffix2` are appended to only those columns in common between `file1` and `file2` that are not included in `join_on`.
+* If `sorted` is enabled, the output will be sorted by the `join_on` columns.
+* `output` specifies the output file name. Defaults to `./merged.csv`.
 
 ## Get domain
 
-`get_domain.py` is a small custom library that defines several functions to extract domain names of different levels from longer domains or full URLs.
+`get_domain.jq` is a small JQ module that defines several functions to extract domain names of different levels from longer domains or full URLs.
+
+# Docker container
+
+All of these tools can be invoked from a pre-packaged [Docker container](https://hub.docker.com/r/salb98/priv-accept-post-process) as follows:
+```
+docker run [...docker_args] salb98/priv-accept-post-process
+  <extract-contacted-2ld | attest-domain | post-process-output | merge-csv>
+  [...tool_args]
+```

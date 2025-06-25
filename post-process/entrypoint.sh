@@ -1,19 +1,22 @@
 #!/bin/bash
 
 case $1 in
-    analyze)
-        script=extract-domains.py
+    extract-contacted-2ld)
+        cmd="jq -L modules -f extract_contacted_2ld.jq"
         ;;
     attest-domain)
-        script=attest-domain.py
+        cmd="python3 attest-domain.py"
         ;;
-    extract-domains)
-        script=extract-domains.py
+    post-process-output)
+        cmd="jq -r -L modules -f post_process_output.jq"
+        ;;
+    merge-csv)
+        cmd="python3 merge-csv.py"
         ;;
     *)
-        echo "Usage: $0 [analyze | attest-domain | extract-domains] <args>";
+        echo "Usage: $0 <extract-contacted-2ld | attest-domain | post-process-output | merge-csv> <args>";
         exit 1
         ;;
 esac
 
-python3 "$script" ${@:2}
+$cmd ${@:2}
