@@ -1,9 +1,10 @@
 #!/bin/bash
 
+VERSION="2.0-beta1"
 TODAY=$(date +%Y%m%d) # YYYYMMDD
 
 # Customize these constants to your liking
-WORKING_FOLDER="/home/$USER/priv-accept-topics"
+WORKING_FOLDER="/home/$USER/priv-accept-ps"
 OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 FINAL_OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 PRIV_ACCEPT_TIMEOUT="20m"
@@ -12,7 +13,7 @@ EXPRESSVPN_ACTIVATION_CODE="CHANGE_ME"
 docker_auto_kill() {
     # Auto-kill docker containers that run for more than 1 hour (assume that they are stuck)
     while true; do
-        docker stop $(docker ps --filter "ancestor=salb98/priv-accept-topics:geo" --format "{{ .ID }} {{ .RunningFor }}" | awk "{if (\$0 ~ /hour/) print \$1}") > /dev/null 2>&1
+        docker stop $(docker ps --filter "ancestor=$1" --format "{{ .ID }} {{ .RunningFor }}" | awk "{if (\$0 ~ /hour/) print \$1}") > /dev/null 2>&1
         sleep 10;
     done
 }
@@ -25,6 +26,7 @@ timeout=5
 parallel_limit=0
 website_limit=50000
 date=$TODAY
+cleanup=0
 while getopts ":r:l:t:p:w:d:" opt; do
     case $opt in
         r)
@@ -45,8 +47,11 @@ while getopts ":r:l:t:p:w:d:" opt; do
         d)
             date=$OPTARG
             ;;
+        c)
+            cleanup=1
+            ;;
         *)
-            echo "Usage: $0 [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>]";
+            echo "Usage: $0 [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>] [-c]";
             exit 1
             ;;
     esac
@@ -61,7 +66,8 @@ if [ -n "$remote_server" ]; then
 fi
 
 # Create output folders
-mkdir -p $OUTPUTS_FOLDER/priv-accept
+mkdir -p $OUTPUTS_FOLDER/priv-accept/accept
+mkdir -p $OUTPUTS_FOLDER/priv-accept/deny
 mkdir -p $OUTPUTS_FOLDER/analyze-topics
 
 if [ ! -f "$OUTPUTS_FOLDER/top-1m.csv" ]; then
@@ -73,9 +79,12 @@ if [ ! -f "$OUTPUTS_FOLDER/top-1m.csv" ]; then
     rm $OUTPUTS_FOLDER/top-1m.csv.zip
 fi
 
-if [ ! -f "$OUTPUTS_FOLDER/allowed_domains.txt" ]; then
+if [ ! -f "$OUTPUTS_FOLDER/allowed_domains.csv" ]; then
     echo "EXTRACTING ALLOWED DOMAINS..."
-    docker run --rm salb98/extract-allowed-domains --stdout > $OUTPUTS_FOLDER/allowed_domains.txt
+    docker run --rm \
+        -v "$OUTPUTS_FOLDER":/opt/extract-allowed-domains/output \
+        salb98/extract-allowed-domains:$VERSION \
+        --output /opt/extract-allowed-domains/output/allowed_domains.csv
 fi
 
 if [ -n "$remote_server" ]; then
@@ -96,81 +105,87 @@ if [ -n "$remote_server" ]; then
 fi
 
 # Auto-kill docker containers after 1 hour of execution
-docker_auto_kill &
+docker_auto_kill salb98/priv-accept-topics:$VERSION &
 docker_auto_kill_pid=$!
 
-# Run priv-accept
 echo "RUNNING CRAWLER..."
-head -n $website_limit $OUTPUTS_FOLDER/top-1m.csv |
-cut -d "," -f2 | sed -e "s/\r//g" |
+head -n $website_limit "$OUTPUTS_FOLDER/top-1m.csv" |
+sed -e "s/\r//g" |
+xargs -I {} echo -e "{},accept\n{},deny" |
 parallel --load 80% \
     --resume \
+    --retries 3 \
     --jobs $parallel_limit \
-    --joblog $OUTPUTS_FOLDER/priv-accept-topics.log \
-    --results $OUTPUTS_FOLDER/priv-accept-logs \
+    --joblog "$OUTPUTS_FOLDER/priv-accept-ps.log" \
+    --results "$OUTPUTS_FOLDER/priv-accept-logs" \
     --progress --bar --eta \
+    --colsep=',' \
     "
         timeout -s KILL $PRIV_ACCEPT_TIMEOUT \
             docker run --rm \
-            --name priv-accept-{}-$date-${remote_server:-it} \
+            --name priv-accept-{2}-{3}-$date-${remote_server:-it} \
             --network "${network:=bridge}" \
-            -v $OUTPUTS_FOLDER/priv-accept:/opt/priv-accept-topics/output \
+            -v "$OUTPUTS_FOLDER"/priv-accept/{3}:/opt/priv-accept-ps/output \
             -v vpn-shared:/vpn_shared \
-            salb98/priv-accept-topics:geo \
-            --url {} \
-            --outfile /opt/priv-accept-topics/output/output_{}.json \
+            salb98/priv-accept-ps:$VERSION \
+            --url {2} \
+            --outfile /opt/priv-accept-ps/output/\$(printf %05d {1})_output_{2}.json \
             --timeout $timeout \
             --clear_cache --full_net_log --lang \"$lang\" --xvfb \
-            --rum_speed_index
+            --rum_speed_index \
+            --pretty_print \
+            \$( if [ {3} = 'deny' ]; then echo '--deny'; fi )
     "
 
 # Terminate docker_auto_kill process
 kill $docker_auto_kill_pid
 
-# Prepend sequence numbers to priv-accept output files
-echo "Adding sequence number to crawler output files..."
-head -n $website_limit $OUTPUTS_FOLDER/top-1m.csv |
-sed -e "s/\r//g" |
-while IFS=, read -r seq domain; do
-    [ -f "$OUTPUTS_FOLDER/priv-accept/output_${domain}.json" ] &&
-    mv $OUTPUTS_FOLDER/priv-accept/output_${domain}.json $OUTPUTS_FOLDER/priv-accept/$(printf "%07d" $seq)_output_${domain}.json;
-done
-
-if [ ! -f "$OUTPUTS_FOLDER/connected_domains.txt" ]; then
-    echo "EXTRACTING CONTACTED DOMAINS..."
-
-    # Run extract-domains
-    ls -1 $OUTPUTS_FOLDER/priv-accept |
-    parallel --load 80% \
-        --progress --bar --eta \
-        "python3 $WORKING_FOLDER/analyze-topics-api/extract-domains.py $OUTPUTS_FOLDER/priv-accept/{}" 2> $OUTPUTS_FOLDER/extract-domains.stderr |
-        sort | uniq > $OUTPUTS_FOLDER/connected_domains.txt
-fi
+# Auto-kill docker containers after 1 hour of execution
+docker_auto_kill salb98/priv-accept-post-process:$VERSION &
+docker_auto_kill_pid=$!
 
 if [ ! -f "$OUTPUTS_FOLDER/allowed_attested.csv" ]; then
     # Attest allowed domains
     echo "EXTRACTING ATTESTED AND ALLOWED DOMAINS..."
-    echo "domain,attestation_result" > $OUTPUTS_FOLDER/allowed_attested.csv
-    cat $OUTPUTS_FOLDER/allowed_domains.txt |
+    echo "domain,attestation_result" > "$OUTPUTS_FOLDER/allowed_attested.csv"
+    cat "$OUTPUTS_FOLDER/allowed_domains.csv" |
+    cut -d, -f1 |
     parallel --load 80% \
         --progress --bar --eta \
-        "python3 $WORKING_FOLDER/analyze-topics-api/attest-domain.py {}" >> $OUTPUTS_FOLDER/allowed_attested.csv
+        "docker run --rm salb98/priv-accept-post-process:$VERSION attest-domain {}" >> "$OUTPUTS_FOLDER/allowed_attested.csv"
 fi
 
 if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
     # Attest domains found during the crawling
     echo "EXTRACTING ATTESTED AND CONTACTED DOMAINS..."
-    echo "domain,attestation_result" > $OUTPUTS_FOLDER/attested_domains.csv
+    echo "domain,attestation_result" > "$OUTPUTS_FOLDER/attested_domains.csv"
     
-    cat $OUTPUTS_FOLDER/connected_domains.txt |
+    visits_json='["first","second"]'
+
+    # Extract unique second-level domains of websites contacted across the entire campaign.
+    find "$OUTPUTS_FOLDER/priv-accept/accept" "$OUTPUTS_FOLDER/priv-accept/deny" -type f |
+    awk -F/ '{print $(NF-1) "/" $NF}' | # Crop path to "(accept|deny)/filename"
     parallel --load 80% \
         --progress --bar --eta \
-        "python3 $WORKING_FOLDER/analyze-topics-api/attest-domain.py {}" >> $OUTPUTS_FOLDER/attested_domains.csv
+        "
+            docker run \
+            -v "$OUTPUTS_FOLDER/priv-accept":/var/data:ro \
+            salb98/priv-accept-post-process:$VERSION extract-contacted-2ld \
+            -r \
+            --argjson visits '$visits_json' \
+            /var/data/{}
+        " |
+
+    # For each extracted domain, check for its attestation file.
+    sort | uniq |
+    parallel --load 80% \
+        --progress --bar --eta \
+        "docker run --rm salb98/priv-accept-post-process:$VERSION attest-domain {}" \
+        >> $OUTPUTS_FOLDER/attested_domains.csv
 fi
 
-# Run analyze-topics
-echo "EXTRACTING TOPICS API DATA FROM CRAWLER OUTPUTS..."
-ls -1 $OUTPUTS_FOLDER/priv-accept | parallel --load 80% --resume --joblog $OUTPUTS_FOLDER/analyze-topics.log --results $OUTPUTS_FOLDER/analyze-topics-logs --progress --bar --eta "python3 $WORKING_FOLDER/analyze-topics-api/analyze-topics-api.py $OUTPUTS_FOLDER/priv-accept/{} --attested_domains_file $OUTPUTS_FOLDER/attested_domains.csv --allowed_domains_file $OUTPUTS_FOLDER/allowed_domains.txt --consent_managers_file $WORKING_FOLDER/analyze-topics-api/consent-managers.txt --outfile $OUTPUTS_FOLDER/analyze-topics/{}"
+# Terminate docker_auto_kill process
+kill $docker_auto_kill_pid
 
 if [ -n "$remote_server" ]; then
     # Stop VPN container
@@ -178,14 +193,61 @@ if [ -n "$remote_server" ]; then
     final_output_prefix="-$remote_server"
 fi
 
-if [ ! -f "$OUTPUTS_FOLDER/analyze-topics-output.csv" ]; then
-    echo "Condensing outputs into CSV file..."
+if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
+    echo "GENERATING FINAL OUTPUT FILE..."
+
+    # Generate header: cartesian product between visits and fields
+    visits=(first second)
+    fields=(contacted_domains api_calls)
+    old_ifs=$IFS
+    IFS=,
+    csv_fields=$(eval "echo "position website {"${visits[*]}"}_{"${fields[*]}"}"")
+    IFS=$old_ifs
+    csv_header=$(echo $csv_fields | sed "s/\s/,/g")
+
+    # Convert bash array to JSON
+    visits_json='["'"$(printf '%s","' "${visits[@]}" | sed 's/,"$//')"']'
+    fields_json='["'"$(printf '%s","' "${fields[@]}" | sed 's/,"$//')"']'
     
-    # Condense all JSON output files into a single CSV file
-    cd $OUTPUTS_FOLDER/analyze-topics
-    echo 'domain,first_attested_domains,first_allowed_domains,first_topics_api_usages,first_consent_managers,first_has_gtm,banner_clicked,second_attested_domains,second_allowed_domains,second_topics_api_usages,second_consent_managers,second_has_gtm' > $OUTPUTS_FOLDER/analyze-topics-output.csv
-    jq -r '[.url, (.first.attested_domains | tostring), (.first.allowed_domains | tostring), (.first.topics_api_usages | tostring), (.first.consent_managers | tostring), (.first.has_gtm), .banner_clicked, (.second.attested_domains | tostring), (.second.allowed_domains | tostring), (.second.topics_api_usages | tostring), (.second.consent_managers | tostring), (.second.has_gtm)] | @csv' *.json >> $OUTPUTS_FOLDER/analyze-topics-output.csv
-    cd $cwd
+    # Create two CSV files: one for accept, one for deny
+    for action in accept deny; do
+        if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs_$action.csv" ]; then
+            echo "Condensing crawler outputs into CSV file ($action)..."
+            echo $csv_header > "$OUTPUTS_FOLDER/crawler_outputs_$action.csv"
+
+            find "$OUTPUTS_FOLDER/priv-accept/$action" -type f |
+            xargs basename -a |
+            sort | # Linux find does not sort by default
+            parallel --load 80% \
+                --progress --bar --eta \
+                --keep-order \
+                "
+                    docker run \
+                    -v "$OUTPUTS_FOLDER/priv-accept/$action":/var/data:ro \
+                    salb98/priv-accept-post-process:$VERSION post-process-output \
+                    --argjson visits '$visits_json' \
+                    --argjson fields '$fields_json' \
+                    --arg position \"\$(echo {} | cut -d_ -f1)\" \
+                    --arg full_net_log 1 \
+                    /var/data/{}
+                " >> "$OUTPUTS_FOLDER/crawler_outputs_$action.csv"
+        fi
+    done
+
+    # Merge CSV files into one
+    echo "Merging CSV files..."
+    docker run \
+        -v "$OUTPUTS_FOLDER":/var/data:rw \
+        salb98/priv-accept-post-process:$VERSION \
+        merge-csv \
+        /var/data/crawler_outputs_accept.csv \
+        /var/data/crawler_outputs_deny.csv \
+        --join_type outer \
+        --join_on position website \
+        --suffix1 _accept \
+        --suffix2 _deny \
+        --sorted \
+        --output /var/data/crawler_outputs.csv
 fi
 
 mkdir -p $FINAL_OUTPUTS_FOLDER
@@ -194,8 +256,12 @@ if [ ! -f "$FINAL_OUTPUTS_FOLDER/output-$date$final_output_prefix.zip" ]; then
     echo "Creating final output..."
 
     # Zip important files into final output
-    zip -j $FINAL_OUTPUTS_FOLDER/output-$date$final_output_prefix.zip $OUTPUTS_FOLDER/connected_domains.txt $OUTPUTS_FOLDER/attested_domains.csv $OUTPUTS_FOLDER/allowed_domains.txt $OUTPUTS_FOLDER/allowed_attested.csv $OUTPUTS_FOLDER/analyze-topics-output.csv
+    zip -j $FINAL_OUTPUTS_FOLDER/outputs-$date$final_output_prefix.zip $OUTPUTS_FOLDER/attested_domains.csv $OUTPUTS_FOLDER/allowed_domains.csv $OUTPUTS_FOLDER/allowed_attested.csv $OUTPUTS_FOLDER/crawler_outputs.csv
     
     # Final cleanup
-    # rm -rf $OUTPUTS_FOLDER
+    if [ $cleanup -eq 1 ]; then
+        rm -rf $OUTPUTS_FOLDER
+    fi
 fi
+
+echo "Done!"
