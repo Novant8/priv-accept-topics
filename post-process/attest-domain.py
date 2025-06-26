@@ -5,6 +5,8 @@ from json.decoder import JSONDecodeError
 import sys
 import time
 
+requests.packages.urllib3.disable_warnings(category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
 DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
 parser = argparse.ArgumentParser()
