@@ -203,17 +203,17 @@
             "updateAdInterestGroups",
             "leaveAdInterestGroup",
             "runAdAuction",
-            "hasPrivateToken",
-            "hasRedemptionRecord"
-        ],
-        "propNames": []
-    },
-    {
-        "elementType": "Document",
-        "funcNames": [
+          ],
+          "propNames": []
+        },
+        {
+          "elementType": "Document",
+          "funcNames": [
             "browsingTopics",
             "requestStorageAccess",
-            "requestStorageAccessFor"
+            "requestStorageAccessFor",
+            "hasPrivateToken",
+            "hasRedemptionRecord"
         ],
         "propNames": []
     },
