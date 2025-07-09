@@ -44,9 +44,14 @@ reduce $visits[] as $visit (.;
 [
   ($position | tonumber),
   if $full_net_log == 1 then
-    .[$visits[0]].requests[0].request.url
+    .[$visits[0]].requests
+      | map(select(.request.url | startswith("chrome://") | not))
+      | first
+      | .request.url
   else
-    .[$visits[0]].urls[0]
+    .[$visits[0]].urls
+      | map(select(startswith("chrome://") | not))
+      | first
   end
 ]
 +
