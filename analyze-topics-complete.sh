@@ -198,7 +198,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
 
     # Generate header: cartesian product between visits and fields
     visits=(first second)
-    fields=(contacted_domains api_calls)
+    fields=(contacted_domains api_calls partitioned_cookies)
     old_ifs=$IFS
     IFS=,
     csv_fields=$(eval "echo "position website {"${visits[*]}"}_{"${fields[*]}"}"")

@@ -17,10 +17,11 @@ include "get_domain";
 ($full_net_log | tonumber) as $full_net_log
 |
 reduce $visits[] as $visit (.;
-  # DEFINE CONTACTED DOMAINS: extract all non-data domains that have been contacted during the visit
+  # For each visit (if performed)...
   if .[$visit] != null then
     .[$visit] |= (
       . + {
+        # DEFINE CONTACTED DOMAINS: extract all non-data domains that have been contacted during the visit
         contacted_domains: (
           if $full_net_log == 1 then
             .requests
@@ -33,6 +34,11 @@ reduce $visits[] as $visit (.;
             | getFullDomain
           )
           | unique
+        ),
+        # PARTITIONED COOKIES: extract all cookies with a partition key
+        partitioned_cookies: (
+          .cookies.cookies
+          | map(select(.partitionKey != null))
         )
       }
     )
