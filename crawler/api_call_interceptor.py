@@ -8,6 +8,7 @@ import shutil
 from types import ModuleType
 from api_call_collector import ApiCallCollector
 from lib.db import db_connection
+from lib.log import Logger, getLogger
 
 with open(os.path.dirname(os.path.realpath(__file__)) + "/intercept-api-calls.js") as file:
     INTERCEPT_CALLS_SCRIPT = file.read()
@@ -19,12 +20,14 @@ class APICallInterceptor:
     script_loaded: bool
     collectors: list[ApiCallCollector]
     user_data_dir: str
+    logger: Logger
 
     def __init__(self, driver: WebDriver, collectors: list[ApiCallCollector], user_data_dir: str = "~/.config/google-chrome"):
         self.driver = driver
         self.script_loaded = False
         self.collectors = collectors
         self.user_data_dir = os.path.expanduser(user_data_dir)
+        self.logger = getLogger("APICallInterceptor")
 
     @asynccontextmanager
     async def _open_cdp_session(self, nursery: trio.Nursery):
@@ -56,6 +59,8 @@ class APICallInterceptor:
         assert isinstance(event, (devtools.target.TargetCreated, devtools.target.AttachedToTarget))
         target_id = event.target_info.target_id
 
+        self.logger.debug(f"New target {target_id} detected")
+
         # Create only one session per target
         found_session = next((session for session in conn.sessions.values() if session.target_id == target_id), None)
         if found_session is None:
@@ -73,6 +78,7 @@ class APICallInterceptor:
         Event handler for the Runtime.bindingCalled event.
         """
         assert isinstance(event, devtools.runtime.BindingCalled)
+        self.logger.debug(f"Binding {event.name} detected")
         if event.name == "calledAPIEvent":
             for collector in self.collectors:
                 payload = json.loads(event.payload)
@@ -107,7 +113,9 @@ class APICallInterceptor:
         """
         Handles the Runtime.executionContextCreated event to initialize collectors for each execution context.
         """
+        self.logger.debug(f"[CDP Session {session.session_id}] Handling new execution context creation")
         async for event in session.listen(devtools.runtime.ExecutionContextCreated):
+            self.logger.debug(f"[CDP Session {session.session_id}] Execution context {event.context.id_} found, sending Runtime.evaluate to browser")
             await session.execute(devtools.runtime.evaluate(expression=INTERCEPT_CALLS_SCRIPT, context_id=event.context.id_))
 
     async def _init_session(self, conn: CdpConnection, session: CdpSession, devtools: ModuleType, nursery: trio.Nursery, target_type = "unknown"):
@@ -115,25 +123,30 @@ class APICallInterceptor:
         Performs the preliminary steps to track function calls within the given session
         """
         # Auto-attach to new targets and wait for debugger on start: this is to allow captuing all information
+        self.logger.debug(f"[CDP Session {session.session_id}] Sending Target.setAutoAttach to browser")
         await session.execute(devtools.target.set_auto_attach(auto_attach=True, wait_for_debugger_on_start=True, flatten=True))
 
         # Start event listener tasks
         nursery.start_soon(self._handle_cdp_events, session, conn, devtools, nursery)
 
         # Add binding for recording API calls
+        self.logger.debug(f"[CDP Session {session.session_id}] Sending Runtime.addBinding(calledApiEvent) to browser")
         await session.execute(devtools.runtime.add_binding(name="calledAPIEvent"))
         
         if target_type in ["page", "iframe"]:
             # Enable page commands and event logging
+            self.logger.debug(f"[CDP Session {session.session_id}] Sending Page.enable to browser")
             await session.execute(devtools.page.enable())
 
             # Inject 'intercept-functions.js' script on all new documents (pages and iframes)
+            self.logger.debug(f"[CDP Session {session.session_id}] Sending Page.addScriptToEvaluateOnNewDocument to browser")
             await session.execute(devtools.page.add_script_to_evaluate_on_new_document(source=INTERCEPT_CALLS_SCRIPT))
         else:
             # For service workers/worklets, execute the script as soon as an execution context is created
             nursery.start_soon(self._handle_execution_contexts, session, devtools)
 
         # Enable runtime event logging (needed for Runtime.bindingCalled event)
+        self.logger.debug(f"[CDP Session {session.session_id}] Sending Runtime.enable to browser")
         await session.execute(devtools.runtime.enable())
 
         # Initialize collectors for session
@@ -141,6 +154,7 @@ class APICallInterceptor:
             await collector.init(session)
 
         # Resume only after having initialized everything
+        self.logger.debug(f"[CDP Session {session.session_id}] Sending Runtime.runIfWaitingForDebugger to browser")
         await session.execute(devtools.runtime.run_if_waiting_for_debugger())
 
     async def _read_from_db(self):
@@ -152,11 +166,12 @@ class APICallInterceptor:
                 # Copy the database file to a temporary location to avoid locking issues
                 real_db_path = f"{self.user_data_dir}/Default/{collector.db_name}"
                 tmp_db_path = f"/tmp/{collector.db_name}"
+                self.logger.debug(f"Trying to read from collector database at '{real_db_path}'")
                 try:
                     shutil.copy(real_db_path, tmp_db_path)
                 except FileNotFoundError as e:
                     # Database not found: skip reading from it
-                    print(f"Warning: Could not read database at '{e.filename}'")
+                    self.logger.warning(f"Could not read database at '{e.filename}'")
                     continue
 
                 with db_connection(tmp_db_path) as conn:
@@ -169,6 +184,7 @@ class APICallInterceptor:
         This async context manager intercepts select JavaScript API calls while the code inside the block executes.
         It does so by opening a CDP connection to the browser
         """
+        self.logger.debug("Opening CDP session")
         async with trio.open_nursery() as nursery:
             async with self._open_cdp_session(nursery) as (conn, session, devtools): 
                 # Update devtools object for collectors

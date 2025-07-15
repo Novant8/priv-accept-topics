@@ -3,6 +3,7 @@ from types import ModuleType
 from typing import Union, Optional
 from abc import ABC, abstractmethod
 from lib.db import DBConnection
+from lib.log import Logger, getLogger
 
 class ApiCallCollector(ABC):
     """
@@ -58,6 +59,11 @@ class ApiCallCollector(ABC):
     Name of the database to connect to, if any, as saved in Chrome's configuration folder.
     """
 
+    logger: Logger
+    """
+    Object for logging info, errors and debug information
+    """
+
     def __init__(self):
         self.name = "unknown"
         self._devtools = None
@@ -67,6 +73,7 @@ class ApiCallCollector(ABC):
         self.js_calls_to_listen = []
         self.db_name = None
         self.db_data = None
+        self.logger = getLogger("APICallCollector")
 
     @property
     def devtools(self):

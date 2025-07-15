@@ -63,8 +63,11 @@ class TopicsApiCallCollector(ApiCallCollector):
                 AND last_usage_time > ?
             """
         
+        self.logger.debug(f"Attempting connection to database '{self.db_name}'")
         cur = conn.cursor()
+        self.logger.debug(f"Connection to '{self.db_name}' successful")
         res = cur.execute(sql, [self.last_usage_time])
+        self.logger.debug(f"Executing query:\n{sql}")
         self.db_data = []
         for row in res.fetchall():            
             if self.custom_chromium:
@@ -85,3 +88,4 @@ class TopicsApiCallCollector(ApiCallCollector):
             usage_time = row[3] if self.custom_chromium else row[2]
             if usage_time > self.last_usage_time:
                 self.last_usage_time = usage_time
+        self.logger.debug(f"Current DB data for '{self.name}': {self.db_data}")
