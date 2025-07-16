@@ -8,15 +8,15 @@
 # - $fields: e.g., contacted_domains, api_calls
 # - $position: position number in Tranco list
 # - $full_net_log: "boolean" (int 0 or 1) indicating whether the full network log is available
+# - $csv_format: "boolean" (int 0 or 1) indicating whether to format the output into a single CSV line
 ######################################################################################################
 
 include "get_domain";
 
 .
-|
-($full_net_log | tonumber) as $full_net_log
-|
-reduce $visits[] as $visit (.;
+| ($full_net_log | tonumber) as $full_net_log
+| ($csv_format | tonumber) as $csv_format
+| reduce $visits[] as $visit (.;
   # For each visit (if performed)...
   if .[$visit] != null then
     .[$visit] |= (
@@ -45,26 +45,46 @@ reduce $visits[] as $visit (.;
   else .
   end
 )
-|
-# FINAL OUTPUT: CSV line with Tranco position + website URL + list of fields for each visit.
-[
-  ($position | tonumber),
-  if $full_net_log == 1 then
-    .[$visits[0]].requests
-      | map(select(.request.url | startswith("chrome://") | not))
-      | first
-      | .request.url
-  else
-    .[$visits[0]].urls
+
+| . as $output
+| reduce $visits[] as $visit(
+  {
+    "position": $position | tonumber,
+    "website": (
+      if $full_net_log == 1 then
+        .[$visits[0]].requests
+          | map(.request.url)
+      else
+        .[$visits[0]].urls
+      end
       | map(select(startswith("chrome://") | not))
       | first
-  end
-]
-+
-[
-  $visits[] as $visit
-  | $fields[] as $field
-  | .[$visit]?[$field]
-  | if . == null then null else tostring end
-]
-| @csv
+    )
+  };
+  . + {
+    ($visit): (
+      if $output[$visit] != null then
+        reduce $fields[] as $field (
+          {};
+          . + { ($field): $output[$visit]?[$field] }
+        )
+      else
+        null
+      end
+    )
+  }
+)
+| if $csv_format == 1 then
+  # CSV OUTPUT: line with Tranco position + website URL + list of fields for each visit.
+  [ .position, .website ]
+  +
+  [
+    $visits[] as $visit
+    | $fields[] as $field
+    | .[$visit]?[$field]
+    | if . == null then null else tostring end
+  ]
+  | @csv
+else
+  .
+end

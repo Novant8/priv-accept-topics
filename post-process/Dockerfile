@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 RUN apt update && apt install -y jq
 
-RUN mkdir /opt/priv-accept-post-process
-ADD *.py *.jq modules/ entrypoint.sh requirements.txt /opt/priv-accept-post-process/
+COPY *.py *.jq entrypoint.sh requirements.txt /opt/priv-accept-post-process/
+COPY modules /opt/priv-accept-post-process/modules
 
 RUN pip install -r /opt/priv-accept-post-process/requirements.txt
 

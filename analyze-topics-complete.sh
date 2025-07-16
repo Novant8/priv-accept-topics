@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit script on any command error
+set -e
+
 VERSION="2.0-beta1"
 TODAY=$(date +%Y%m%d) # YYYYMMDD
 
@@ -173,6 +176,8 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
             salb98/priv-accept-post-process:$VERSION extract-contacted-2ld \
             -r \
             --argjson visits '$visits_json' \
+--arg full_net_log 1 \
+            --arg separate 0 \
             /var/data/{}
         " |
 
@@ -229,6 +234,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
                     --argjson fields '$fields_json' \
                     --arg position \"\$(echo {} | cut -d_ -f1)\" \
                     --arg full_net_log 1 \
+                    --arg csv_format 1 \
                     /var/data/{}
                 " >> "$OUTPUTS_FOLDER/crawler_outputs_$action.csv"
         fi
