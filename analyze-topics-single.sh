@@ -61,15 +61,14 @@ jq  -L "$WORKING_DIR/post-process/modules" \
     "$OUTPUT_DIR/priv-accept-output.json" \
     > "$OUTPUT_DIR/contacted-domains.json"
 
-set +e
 echo "Checking for attested domains"
 jq -r 'flatten | unique[]' "$OUTPUT_DIR/contacted-domains.json" |
 xargs -I {} sh -c "timeout -s KILL ${CONNECTION_TIMEOUT:=30} python3 "$WORKING_DIR/post-process/attest-domain.py" {} || true" >> "$OUTPUT_DIR/attested-domains.csv"
-set -e
 
 echo "Extracting meaningful data from crawler output"
 jq  -L "$WORKING_DIR/post-process/modules" \
     -f "$WORKING_DIR/post-process/post_process_output.jq" \
+    "$OUTPUT_DIR/priv-accept-output.json" \
     --argjson visits $visits_json \
     --argjson fields $fields_json \
     --arg position -1 \
