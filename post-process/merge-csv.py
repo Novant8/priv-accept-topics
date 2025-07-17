@@ -12,8 +12,8 @@ parser.add_argument("--sorted", action="store_true", help="Sorts by the fields g
 parser.add_argument("--output", type=str, default="merged.csv")
 
 def main(args):
-    df_csv1 = pd.read_csv(args.file1, index_col=args.join_on)
-    df_csv2 = pd.read_csv(args.file2, index_col=args.join_on)
+    df_csv1 = pd.read_csv(args.file1, index_col=args.join_on, on_bad_lines='warn')
+    df_csv2 = pd.read_csv(args.file2, index_col=args.join_on, on_bad_lines='warn')
 
     df_merged = df_csv1.merge(
         df_csv2,
