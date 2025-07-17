@@ -1,19 +1,19 @@
-## Priv-Accept-Topics
+# Priv-Accept-PS
 
 Accept automatically the Privacy Policies to allow automated measurements of the web as real users experience.
-Priv-Accept visits a URL and uses a heuristic to find and click the accept button on privacy policies.
+Priv-Accept visits a URL and uses a heuristic to find and click the accept (or deny) button on privacy policies.
 It is based on a set of keywords to find the right button/link.
 
-Additionally, this fork of the project allows to detect the usage of Google's [Topics API](https://developers.google.com/privacy-sandbox/relevance/topics) at the given website by reading the BrowsingTopicsSiteData database saved locally inside Chrome's profile folder.
+Additionally, this fork of the project allows to detect the usage of Google's [Privacy Sandbox](https://privacysandbox.google.com/) APIs at a given website.
 
 Given a website, the tool accomplishes these tasks:
 
 * Visits the website with a fresh browser profile
-* Clicks on the Accept button, if one is found
+* Clicks on the Accept (or Deny) button, if one is found
 * Re-visits the URL after the consent is given
 * Stores a rich log files containing metadata on the visits, including all URLs, installed cookies, performance metrics (e.g., OnLoad time) and Topics API data
 
-### Prerequisites
+## Prerequisites
 
 You need Python 3 with the libraries specified in the [requirements.txt](./requirements.txt) file. They can be installed by running
 ```shell
@@ -24,14 +24,16 @@ You also need Google Chrome and [chromedriver](https://chromedriver.chromium.org
 Priv-Accept can also be built in a Docker image to allow parallel and isolated experiment. You can build the Docker image using the `Dockerfile` provided in this repo. The images extends the [BrowserTime](https://www.sitespeed.io/documentation/browsertime/) image to profit from the ready-to-use setup.
 
 
-### Usage
+## Usage
 
 Priv-Accept runs via command line and accept the following arguments:
 
 ```
 priv-accept.py    [-h] [--url URL] [--outfile OUTFILE]
-                    [--pretty-print]
+                    [--deny] [--pretty-print]
                     [--accept_words ACCEPT_WORDS]
+                    [--deny_words DENY_WORDS]
+                    [--option_words OPTION_WORDS]
                     [--chrome_binary CHROME_BINARY]
                     [--chrome_driver CHROME_DRIVER]
                     [--screenshot_dir SCREENSHOT_DIR] [--lang LANG]
@@ -40,7 +42,8 @@ priv-accept.py    [-h] [--url URL] [--outfile OUTFILE]
                     [--pre_visit] [--rum_speed_index]
                     [--visit_internals] [--num_internal]
                     [--chrome_extra_option] [--network_conditions]
-                    [--detect_topics] [--xvfb]
+                    [--detect_topics] [--custom_chromium] [--xvfb]
+                    [--loglevel {debug,info,warning,error,critical}]
                     
 ```
 * `-h`: print the help
@@ -48,6 +51,8 @@ priv-accept.py    [-h] [--url URL] [--outfile OUTFILE]
 * `--outfile OUTFILE`: the output file with the metadata in JSON
 * `--pretty-print`: if enabled, the output file will be beautified and printed in multiple lines, otherwise the output will be printed minified in a single line.
 * `--accept_words ACCEPT_WORDS`: a file with the expressions that indicate cookie acceptance
+* `--deny_words DENY_WORDS`: a file with the expressions that indicate cookie denial
+* `--option_words OPTION_WORDS`: a file with the expressions that indicate "more options"
 * `--chrome_binary CHROME_BINARY`: the path to chrome's binary in your machine. By default, it searches on Chrome's default directories in the machine.
 * `--chrome_driver CHROME_DRIVER`: the path to chrome_driver in your machine. By default, is searches on the current directory
 * `--screenshot_dir SCREENSHOT_DIR`: where to save the screenshots of the visits and clicked element
@@ -65,17 +70,25 @@ priv-accept.py    [-h] [--url URL] [--outfile OUTFILE]
 * `--num_internal`: number of internal pages to visit, if `--visit_internals`
 * `--chrome_extra_option`: add custom options to the Chrome command line. Can be repeated multiple times.
 * `--network_conditions`: use Chrome throttling to emulate network conditions. Argument must be `latency_ms:download_bps:upload_bps`. Note: Chrome throttling is very synthetic.
-* `--detect-topics`: detect the usage of the Topics API
-* `--xvfb`: Use a virtual display with `xvfb`, .
+* `--detect-topics` [*DEPRECATED*]: detect the usage of the Topics API.
+* `--custom_chromium`: if set, the crawler assumes the custom Chromium version used from v1 is installed and used.
+* `--xvfb`: Use a virtual display with `xvfb`.
 
-### Output
+## Output
 
 The main output is a JSON file with various statistics, including all the HTTP requests fired at each stage, the cookies that are installed and some information about the found banners. You can can also find performance metrics such as OnLoad time and DOMLoaded time. It can compute the RUM Speed Index. Notice that performance metrics depend on whether you fisit the page with a fresh or non-fresh browser profile. It also includes data related to the usages of the Topics API, including the third parties who called them, if the relative option is enabled.
 
 Moreover, it stores screenshots of the page and of the cookie banners found as well as the clicked element.
 
 
-### Open Data
+## Docker container
 
-To allow reproducing our results, in the `open-data` directory, we provide the data, the plots and the code used in the paper.
+The crawler comes pre-packaged within a Docker container, with all the tools needed for its execution (including the Chrome browser). It can be run through this command:
 
+```
+docker run [...docker_args]
+    salb98/priv-accept-ps:2.0-beta
+    [...crawler_args]
+```
+
+The outputs are placed inside the `/opt/extract-allowed-domains/output` folder.

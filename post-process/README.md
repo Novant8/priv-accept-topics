@@ -11,15 +11,35 @@ This folder encloses the tools used to extract the information useful for analys
 ```
 jq -L modules -f extract_contacted_2ld.jq
   --argjson visits <VISITS>
+  --arg separate <0|1>
+  --arg full_net_log <0|1>
   <PRIV_ACCEPT_OUTPUT>
 ```
 
 * The *Priv-Accept* output refers to the complete JSON output with full network logs active.
 * The `visits` argument is a JSON array of strings, containing the list of visits to consider (e.g., `["first","second"]`).
+* If `separate` is set to 1, the output will separated the contacted domains by visit.
+* If `full_net_log` is set to 1, it indicates that the crawler collected the full network logs (with the `--full_net_log` option enabled). 
 
 ### Output
 
-It prints on `stdout` the unique domains extracted from *Priv-Accept*'s output, one per line.
+If `separate` is set to 1, it prints on `stdout` a JSON object with the following structure:
+```json
+{
+  "<visit1>": [
+    "domain1.com",
+    "domain2.com",
+    ...
+  ],
+  "<visit2>": [
+    "domain3.com",
+    "domain4.com",
+    ...
+  ],
+  ...
+}
+```
+If `separate` is set to 0, it prints the unique domains encountered for all visits, one per line.
 
 ## Domain attestation
 
@@ -55,6 +75,7 @@ jq -L modules -f extract_contacted_2ld.jq
   --argjson fields <FIELDS
   --arg position <POSITION>
   --arg full_net_log <0|1>
+  --arg csv_format <0|1>
   <PRIV_ACCEPT_OUTPUT>
 ```
 
@@ -62,11 +83,23 @@ jq -L modules -f extract_contacted_2ld.jq
 * The `fields` argument is a JSON array of strings containing the list of arguments to consider for each visit, as specified in *Priv-Accept*'s output (e.g., `["api_calls","contacted_domains"]`).
 * The `position` argument refers to the position of the website by popularity, according to the list used.
 * If `full_net_log` is set to 1, it indicates that the crawler collected the full network logs (with the `--full_net_log` option enabled). 
-
+* If `csv_format` is set to 1, the output will be formatted as a single CSV line.
 
 ### Output
 
-A single CSV line per JSON file, with the following format:
+If `csv_format` is set to 1, the output will be a JSON (per input) with the following structure:
+```json
+{
+  "website": "https://...",
+  "position": 123,
+  "<visit1>": {
+      "<field1>": "...",
+      "<field2>": [ "..." ]
+  },
+  "<visit2>": {...}
+}
+```
+If `csv_format` is set to 1, it will contain a single CSV line per input JSON file, with the following format:
 ```
 position,website,{visit}_{field}
 ```
@@ -102,7 +135,7 @@ python merge-csv.py [-h]
 
 All of these tools can be invoked from a pre-packaged [Docker container](https://hub.docker.com/r/salb98/priv-accept-post-process) as follows:
 ```
-docker run [...docker_args] salb98/priv-accept-post-process
+docker run [...docker_args] salb98/priv-accept-post-process:2.0-beta
   <extract-contacted-2ld | attest-domain | post-process-output | merge-csv>
   [...tool_args]
 ```
