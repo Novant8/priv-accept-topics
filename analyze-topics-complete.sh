@@ -29,8 +29,7 @@ timeout=5
 parallel_limit=0
 website_limit=50000
 date=$TODAY
-cleanup=0
-while getopts ":r:l:t:p:w:d:" opt; do
+while getopts ":r:l:t:p:w:d:c" opt; do
     case $opt in
         r)
             remote_server=$OPTARG
@@ -51,7 +50,7 @@ while getopts ":r:l:t:p:w:d:" opt; do
             date=$OPTARG
             ;;
         c)
-            cleanup=1
+            # Do nothing
             ;;
         *)
             echo "Usage: $0 [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>] [-c]";
@@ -134,14 +133,14 @@ parallel --load 80% \
             --url {2} \
             --outfile /opt/priv-accept-ps/output/\$(printf %05d {1})_output_{2}.json \
             --timeout $timeout \
-            --clear_cache --full_net_log --lang \"$lang\" --xvfb \
+            --clear_cache --lang \"$lang\" --xvfb \
             --rum_speed_index \
             --pretty_print \
             \$( if [ {3} = 'deny' ]; then echo '--deny'; fi )
     "
 
 # Terminate docker_auto_kill process
-kill $docker_auto_kill_pid
+kill $docker_auto_kill_pid || true
 
 # Auto-kill docker containers after 1 hour of execution
 docker_auto_kill salb98/priv-accept-post-process:$VERSION &
@@ -176,7 +175,7 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
             salb98/priv-accept-post-process:$VERSION extract-contacted-2ld \
             -r \
             --argjson visits '$visits_json' \
---arg full_net_log 1 \
+            --arg full_net_log 0 \
             --arg separate 0 \
             /var/data/{}
         " |
@@ -190,12 +189,12 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
 fi
 
 # Terminate docker_auto_kill process
-kill $docker_auto_kill_pid
+kill $docker_auto_kill_pid || true
 
 if [ -n "$remote_server" ]; then
     # Stop VPN container
     docker stop expressvpn-$remote_server
-    final_output_prefix="-$remote_server"
+    final_output_suffix="-$remote_server"
 fi
 
 if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
@@ -233,7 +232,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
                     --argjson visits '$visits_json' \
                     --argjson fields '$fields_json' \
                     --arg position \"\$(echo {} | cut -d_ -f1)\" \
-                    --arg full_net_log 1 \
+                    --arg full_net_log 0 \
                     --arg csv_format 1 \
                     /var/data/{}
                 " >> "$OUTPUTS_FOLDER/crawler_outputs_$action.csv"
@@ -258,16 +257,11 @@ fi
 
 mkdir -p $FINAL_OUTPUTS_FOLDER
 
-if [ ! -f "$FINAL_OUTPUTS_FOLDER/output-$date$final_output_prefix.zip" ]; then
+if [ ! -f "$FINAL_OUTPUTS_FOLDER/output-$date$final_output_suffix.zip" ]; then
     echo "Creating final output..."
 
     # Zip important files into final output
-    zip -j $FINAL_OUTPUTS_FOLDER/outputs-$date$final_output_prefix.zip $OUTPUTS_FOLDER/attested_domains.csv $OUTPUTS_FOLDER/allowed_domains.csv $OUTPUTS_FOLDER/allowed_attested.csv $OUTPUTS_FOLDER/crawler_outputs.csv
-    
-    # Final cleanup
-    if [ $cleanup -eq 1 ]; then
-        rm -rf $OUTPUTS_FOLDER
-    fi
+    zip -j $FINAL_OUTPUTS_FOLDER/outputs-$date$final_output_suffix.zip $OUTPUTS_FOLDER/attested_domains.csv $OUTPUTS_FOLDER/allowed_domains.csv $OUTPUTS_FOLDER/allowed_attested.csv $OUTPUTS_FOLDER/crawler_outputs.csv
 fi
 
 echo "Done!"
