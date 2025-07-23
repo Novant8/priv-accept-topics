@@ -21,7 +21,7 @@ COPY --from=extract-allowed /opt/extract-allowed-domains /opt/priv-accept-ps/ext
 COPY --from=crawler /opt/priv-accept /root/* /opt/priv-accept-ps/crawler/
 COPY --from=crawler /opt/google-chrome /opt/google-chrome
 COPY --from=post-process /opt/priv-accept-post-process /opt/priv-accept-post-process/modules /opt/priv-accept-ps/post-process/
-COPY ./analyze-topics-single.sh /opt/priv-accept-ps/analyze-topics.sh
+COPY ./analyze-ps-single.sh /opt/priv-accept-ps/analyze-ps.sh
 
 RUN pip install -r /opt/priv-accept-ps/extract-allowed-domains/requirements.txt -r /opt/priv-accept-ps/crawler/requirements.txt -r /opt/priv-accept-ps/post-process/requirements.txt
 
@@ -30,4 +30,4 @@ COPY --from=crawler /usr/local/lib/python${PYTHON_VERSION}/site-packages/seleniu
 
 WORKDIR /opt/priv-accept-ps
 
-ENTRYPOINT [ "bash", "analyze-topics.sh" ]
+ENTRYPOINT [ "bash", "analyze-ps.sh" ]

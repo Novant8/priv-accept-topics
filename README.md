@@ -15,12 +15,12 @@ This repository consists of four main folders:
 Each folder contains a README file that provides additional information. All tools are also pre-packaged into independent Docker containers.
 
 Additionally, we provide the following files:
-* `analyze-topics-complete.sh` is a script that automates the entire measurement campaign.
-* `analyze-topics-single.sh` is a script that automates the analysis of a single website.
+* `analyze-ps-complete.sh` is a script that automates the entire measurement campaign.
+* `analyze-ps-single.sh` is a script that automates the analysis of a single website.
 
 ## Performing the complete measurements
 
-The `analyze-topics-complete.sh` script performs the entire measurement campaign from a single machine. Since the script is mostly based on [GNU Parallel](https://www.gnu.org/software/parallel/), the script can be easily modified to support running the same commands on multiple machines, if needed. The tools used are the same present in this repository. The steps taken by the script and its outputs can be summarised in the following diagram:
+The `analyze-ps-complete.sh` script performs the entire measurement campaign from a single machine. Since the script is mostly based on [GNU Parallel](https://www.gnu.org/software/parallel/), the script can be easily modified to support running the same commands on multiple machines, if needed. The tools used are the same present in this repository. The steps taken by the script and its outputs can be summarised in the following diagram:
 ```mermaid
 flowchart TD
     PrivAccept("<b><i>Priv-Accept</i></b>") -- accept --> PAOutputAccept["**{...}** output_accept.json"]
@@ -70,11 +70,11 @@ For machines running Ubuntu, we provide the `install-dependencies.sh` script. **
 
 Once the needed packages and dependencies are installed, you can simply execute the script:
 ```shell
-bash analyze-topics-complete.sh
+bash analyze-ps-complete.sh
 ```
 Keep in mind that the campaign is a lengthy and heavy process, which will use a large portion of the machine's CPU for an extended period of time. A 50,000-website crawl can last from 36 hours to several days, depending on the machine's specifications.
 
-### Customizing `analyze-topics-complete.sh`'s behaviour
+### Customizing `analyze-ps-complete.sh`'s behaviour
 
 The beginning of the bash script contains the definitions of constants which can be modified to your liking:
 * `WORKING_FOLDER`: where the root of the repository is located.
