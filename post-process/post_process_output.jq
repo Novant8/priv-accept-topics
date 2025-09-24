@@ -35,11 +35,8 @@ include "get_domain";
           )
           | unique
         ),
-        # PARTITIONED COOKIES: extract all cookies with a partition key
-        partitioned_cookies: (
-          .cookies.cookies
-          | map(select(.partitionKey != null))
-        )
+        # COOKIES: for some reason, the output has two "levels" of cookies
+        cookies: .cookies.cookies
       }
     )
   else .

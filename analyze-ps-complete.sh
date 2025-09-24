@@ -171,6 +171,7 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
         --progress --bar --eta \
         "
             docker run \
+            --rm \
             -v "$OUTPUTS_FOLDER/priv-accept":/var/data:ro \
             salb98/priv-accept-post-process:$VERSION extract-contacted-2ld \
             -r \
@@ -202,7 +203,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
 
     # Generate header: cartesian product between visits and fields
     visits=(first second)
-    fields=(contacted_domains api_calls partitioned_cookies)
+    fields=(contacted_domains api_calls cookies)
     old_ifs=$IFS
     IFS=,
     csv_fields=$(eval "echo "position website {"${visits[*]}"}_{"${fields[*]}"}"")
@@ -227,6 +228,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
                 --keep-order \
                 "
                     docker run \
+                    --rm \
                     -v "$OUTPUTS_FOLDER/priv-accept/$action":/var/data:ro \
                     salb98/priv-accept-post-process:$VERSION post-process-output \
                     --argjson visits '$visits_json' \
@@ -242,6 +244,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
     # Merge CSV files into one
     echo "Merging CSV files..."
     docker run \
+        --rm \
         -v "$OUTPUTS_FOLDER":/var/data:rw \
         salb98/priv-accept-post-process:$VERSION \
         merge-csv \
