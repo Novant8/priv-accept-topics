@@ -70,7 +70,6 @@ fi
 # Create output folders
 mkdir -p $OUTPUTS_FOLDER/priv-accept/accept
 mkdir -p $OUTPUTS_FOLDER/priv-accept/deny
-mkdir -p $OUTPUTS_FOLDER/analyze-topics
 
 if [ ! -f "$OUTPUTS_FOLDER/top-1m.csv" ]; then
     echo "DOWNLOADING LATEST TRANCO LIST..."
@@ -107,7 +106,7 @@ if [ -n "$remote_server" ]; then
 fi
 
 # Auto-kill docker containers after 1 hour of execution
-docker_auto_kill salb98/priv-accept-topics:$VERSION &
+docker_auto_kill salb98/priv-accept-ps:$VERSION &
 docker_auto_kill_pid=$!
 
 echo "RUNNING CRAWLER..."

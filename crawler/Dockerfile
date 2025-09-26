@@ -52,7 +52,7 @@ ARG DEVTOOLS_VERSION
 ENV PYTHONUNBUFFERED=1
 
 # Install package dependencies
-RUN apt-get update && apt-get install -y libglib2.0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 libxdamage1 libgbm1 libxkbcommon0 libpango1.0-0 libcairo2 libxrender1 libcap2 libgcrypt20 liblzma5 libzstd1 liblz4-1 libblkid1 libgpg-error0 libmd0 xvfb
+RUN apt-get update && apt-get install -y libglib2.0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 libxdamage1 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 libxrender1 libcap2 libgcrypt20 liblzma5 libzstd1 liblz4-1 libblkid1 libgpg-error0 libmd0 xvfb
 
 RUN mkdir /opt/priv-accept
 

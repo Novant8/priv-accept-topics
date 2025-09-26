@@ -61,6 +61,7 @@ parser.add_argument('--force_click_data', action='store_true')
 parser.add_argument('--visit_internals', action='store_true')
 parser.add_argument('--num_internal', type=int, default=5)
 parser.add_argument('--detect_topics', action='store_true', deprecated=True)
+parser.add_argument('--disable_privacy_sandbox', action='store_true')
 parser.add_argument('--custom_chromium', action='store_true')
 parser.add_argument('--xvfb', action='store_true')
 parser.add_argument('--loglevel', type=str, default="info", choices=[ "debug", "info", "warning", "error", "critical" ])
@@ -96,8 +97,9 @@ async def main():
     if user_agent is not None:
         USER_AGENT_DEFAULT = user_agent
 
-    # Enable Privacy Sandbox APIs 
-    options.add_argument("enable-privacy-sandbox-ads-apis")
+    # Enable Privacy Sandbox APIs
+    if not disable_privacy_sandbox:
+        options.add_argument("enable-privacy-sandbox-ads-apis")
         
     if lang is not None:
         stats["lang"] = lang
