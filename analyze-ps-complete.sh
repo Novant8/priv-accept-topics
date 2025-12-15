@@ -134,6 +134,7 @@ parallel --load 80% \
             --timeout $timeout \
             --clear_cache --lang \"$lang\" --xvfb \
             --rum_speed_index \
+            --chrome_extra_option="disable-features=TrackingProtection3pcd" \
             --pretty_print \
             \$( if [ {3} = 'deny' ]; then echo '--deny'; fi )
     "
