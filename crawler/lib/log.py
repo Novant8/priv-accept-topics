@@ -39,7 +39,7 @@ class Logger(logging.Logger):
             record.asctime = self.formatTime(record, self.datefmt)
             level_color = self.COLORS.get(record.levelno, self.RESET_ALL)
             formatted = super().format(record)
-            return f"{level_color}[{self.BOLD}{level_color}{record.levelname}{self.RESET_BOLD} - {record.asctime}] {formatted}{self.RESET_ALL}"
+            return f"{level_color}[{self.BOLD}{level_color}{record.levelname}{self.RESET_BOLD} - {record.module} - {record.asctime}] {formatted}{self.RESET_ALL}"
 
 LOG_MAP = {
     "debug": logging.DEBUG,
@@ -73,7 +73,7 @@ def getAllLoggerEntries() -> list[str]:
             if isinstance(handler, Logger.ListHandler)
         for record in handler.records
     ]
-    formatter = logging.Formatter('[%(levelname)s - %(asctime)s] %(message)s')
+    formatter = logging.Formatter('[%(levelname)s - %(module)s - %(asctime)s] %(message)s')
     return [ formatter.format(record) for record in sorted(records, key=lambda r: r.created) ]
 
 logging.setLoggerClass(Logger)

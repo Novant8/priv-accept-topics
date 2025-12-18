@@ -1,4 +1,4 @@
-from selenium.webdriver.chrome.webdriver import WebDriver
+from web_driver import WebDriver
 from selenium.webdriver.common.bidi.cdp import connect_cdp, connection_context, import_devtools, CdpConnection, CdpSession
 from contextlib import asynccontextmanager
 import json
@@ -7,26 +7,25 @@ import os
 import shutil
 from types import ModuleType
 from api_call_collector import ApiCallCollector
+from api_interceptor import APICallInterceptor
 from lib.db import db_connection
 from lib.log import Logger, getLogger
 
-with open(os.path.dirname(os.path.realpath(__file__)) + "/intercept-api-calls.js") as file:
+with open(os.path.dirname(os.path.realpath(__file__)) + "/assets/intercept-api-calls.js") as file:
     INTERCEPT_CALLS_SCRIPT = file.read()
 
-class APICallInterceptor:
+class CDPCallInterceptor(APICallInterceptor):
     "An API Interceptor interacts with the browser (through the CDP protocol) and intercepts certain Browser API calls as either JavaScript calls or CDP events."
 
     driver: WebDriver
     script_loaded: bool
     collectors: list[ApiCallCollector]
-    user_data_dir: str
     logger: Logger
 
-    def __init__(self, driver: WebDriver, collectors: list[ApiCallCollector], user_data_dir: str = "~/.config/google-chrome"):
+    def __init__(self, driver: WebDriver, collectors: list[ApiCallCollector]):
         self.driver = driver
         self.script_loaded = False
         self.collectors = collectors
-        self.user_data_dir = os.path.expanduser(user_data_dir)
         self.logger = getLogger("APICallInterceptor")
 
     @asynccontextmanager
@@ -164,7 +163,7 @@ class APICallInterceptor:
         for collector in self.collectors:
             if collector.db_name is not None:
                 # Copy the database file to a temporary location to avoid locking issues
-                real_db_path = f"{self.user_data_dir}/Default/{collector.db_name}"
+                real_db_path = f"{self.driver.user_data_dir}/Default/{collector.db_name}"
                 tmp_db_path = f"/tmp/{collector.db_name}"
                 self.logger.debug(f"Trying to read from collector database at '{real_db_path}'")
                 try:

@@ -66,16 +66,9 @@ COPY --from=devtools-builder /build/devtools/v${DEVTOOLS_VERSION} /usr/local/lib
 COPY --from=downloader /opt/google-chrome/chrome-linux64 /opt/google-chrome
 COPY --from=downloader /opt/google-chrome/chromedriver-linux64/chromedriver /opt/google-chrome
 
-ADD *.py /opt/priv-accept
-ADD *.js /opt/priv-accept
-ADD lib/*.py /opt/priv-accept/lib/
-ADD api_collectors/*.py /opt/priv-accept/api_collectors/
-ADD api_collectors/proto/*.py /opt/priv-accept/api_collectors/proto/
-ADD *_words.txt /root/
-ADD rum-speedindex.js /root/
+COPY . /opt/priv-accept
 
-COPY ./entrypoint.sh /root/
-RUN chmod +x /root/entrypoint.sh
+RUN chmod +x /opt/priv-accept/entrypoint.sh
 
-WORKDIR /root/
-ENTRYPOINT [ "/root/entrypoint.sh" ]
+WORKDIR /opt/priv-accept
+ENTRYPOINT [ "/opt/priv-accept/entrypoint.sh" ]
