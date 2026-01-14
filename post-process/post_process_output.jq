@@ -35,8 +35,8 @@ include "get_domain";
           )
           | unique
         ),
-        # COOKIES: for some reason, the output has two "levels" of cookies
-        cookies: .cookies.cookies
+        # COOKIES: for some reason, the output has two "levels" of cookies when Chrome is used
+        cookies: (if (.cookies? | type) == "array" then .cookies else .cookies?.cookies end)
       }
     )
   else .

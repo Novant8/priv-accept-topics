@@ -6,5 +6,7 @@ fi
 python3 /opt/priv-accept/priv-accept.py \
     --chrome_driver /opt/google-chrome/chromedriver \
     --chrome_binary /opt/google-chrome/chrome \
+    --firefox_driver /opt/firefox/geckodriver \
+    --firefox_binary /opt/firefox/firefox \
     --docker \
     "$@" # Pass all arguments of this bash script

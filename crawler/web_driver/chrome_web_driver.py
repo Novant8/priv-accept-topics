@@ -29,7 +29,7 @@ class ChromeWebDriver(SeleniumChromeDriver, WebDriver):
 
         options.capabilities.update(desired_capabilities)
 
-        if args.chrome_binary:
+        if args.chrome_binary is not None:
             options.binary_location = args.chrome_binary
 
         #if args.user_agent is not None:
@@ -54,7 +54,7 @@ class ChromeWebDriver(SeleniumChromeDriver, WebDriver):
             options.add_argument("no-sandbox")
             options.add_argument("disable-dev-shm-usage")
 
-        for option in args.chrome_extra_option:
+        for option in args.extra_option:
             options.add_argument(option)
 
         service = Service(executable_path=args.chrome_driver)

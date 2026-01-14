@@ -3,15 +3,15 @@ from banner_clicker import KeywordBannerClicker
 from web_crawler.banner_crawler import BannerCrawler
 from web_crawler.web_crawler import WebCrawler
 from web_driver.chrome_web_driver import ChromeWebDriver
+from web_driver.firefox_web_driver import FirefoxWebDriver
 from lib.log import setup_logging, getLogger, getLogLevel
 
 from web_driver import WebDriver
 import argparse
-import sys
 import json
 import trio
 
-from api_interceptor import APICallInterceptor, CDPCallInterceptor
+from api_interceptor import APICallInterceptor, CDPCallInterceptor, EmptyCallInterceptor
 from api_collectors.topics import TopicsApiCallCollector
 from api_collectors.protected_audience import ProtectedAudienceApiCallCollector
 from api_collectors.private_state_tokens import PrivateStateTokensApiCallCollector
@@ -31,8 +31,11 @@ parser.add_argument('--accept_words', type=str, default="accept_words.txt")
 parser.add_argument('--deny', action='store_true')
 parser.add_argument('--deny_words', type=str, default="deny_words.txt")
 parser.add_argument('--option_words', type=str, default="option_words.txt")
+parser.add_argument('--browser', type=str, default="chrome", choices=["chrome", "firefox"])
 parser.add_argument('--chrome_binary', type=str, default=None)
+parser.add_argument('--firefox_binary', type=str, default=None)
 parser.add_argument('--chrome_driver', type=str, default="./chromedriver")
+parser.add_argument('--firefox_driver', type=str, default="./geckodriver")
 parser.add_argument('--screenshot_dir', type=str, default=None)
 parser.add_argument('--lang', type=str, default=None)
 parser.add_argument('--timeout', type=int, default=5)
@@ -44,7 +47,7 @@ parser.add_argument('--user_agent', type=str, default=None)
 parser.add_argument('--try_scroll', action='store_true')
 parser.add_argument('--full_net_log', action='store_true')
 parser.add_argument('--pre_visit', action='store_true')
-parser.add_argument('--chrome_extra_option', type=str, action='append', default=[])
+parser.add_argument('--extra_option', '--chrome_extra_option', '--firefox_extra_option', dest='extra_option', type=str, action='append', default=[])
 parser.add_argument('--network_conditions', type=str, default=None)
 parser.add_argument('--rum_speed_index', action='store_true')
 parser.add_argument('--force_second_visit', action='store_true')
@@ -57,7 +60,10 @@ parser.add_argument('--custom_chromium', action='store_true')
 parser.add_argument('--xvfb', action='store_true')
 parser.add_argument('--loglevel', type=str, default="info", choices=[ "debug", "info", "warning", "error", "critical" ])
 
-def init_api_call_interceptor(driver: WebDriver, custom_chromium: bool = False) -> APICallInterceptor:
+def init_api_call_interceptor(driver: WebDriver, custom_chromium: bool = False, browser: str = "chrome") -> APICallInterceptor:
+    if browser == "firefox":
+        return EmptyCallInterceptor()
+
     collectors = [
         TopicsApiCallCollector(custom_chromium),
         ProtectedAudienceApiCallCollector(),
@@ -72,7 +78,7 @@ def init_api_call_interceptor(driver: WebDriver, custom_chromium: bool = False) 
     return CDPCallInterceptor(driver, collectors)
 
 def init_crawler(args: argparse.Namespace, driver: WebDriver) -> WebCrawler:
-    interceptor = init_api_call_interceptor(driver, args.custom_chromium)
+    interceptor = init_api_call_interceptor(driver, args.custom_chromium, args.browser)
     banner_clicker = KeywordBannerClicker(
         name="deny" if args.deny else "accept",
         driver=driver,
@@ -83,6 +89,12 @@ def init_crawler(args: argparse.Namespace, driver: WebDriver) -> WebCrawler:
 
     return BannerCrawler(args, driver, interceptor, banner_clicker)
 
+def init_web_driver(args: argparse.Namespace) -> WebDriver:
+    if args.browser == "chrome":
+        return ChromeWebDriver(args)
+    else:
+        return FirefoxWebDriver(args)
+
 async def main(args: argparse.Namespace):
 
     # Setup XVFB if specified
@@ -92,7 +104,7 @@ async def main(args: argparse.Namespace):
         display.start()
 
     global driver
-    driver = ChromeWebDriver(args)
+    driver = init_web_driver(args)
     crawler = init_crawler(args, driver)
     data = await crawler.crawl_website(args.url)
 

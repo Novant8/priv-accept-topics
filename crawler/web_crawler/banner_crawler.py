@@ -31,6 +31,7 @@ class BannerCrawler(WebCrawler):
         # Init basic stats
         self.stats["lang"] = args.lang if args.lang is not None else "default"
         self.stats["headless"] = args.headless
+        self.stats["browser"] = args.browser
     
     async def crawl_website(self, url: str) -> dict:
         """

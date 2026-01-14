@@ -3,11 +3,11 @@
 # Exit script on any command error
 set -e
 
-VERSION="2.0-beta1"
+VERSION="2.0-beta3"
 TODAY=$(date +%Y%m%d) # YYYYMMDD
 
 # Customize these constants to your liking
-WORKING_FOLDER="/home/$USER/priv-accept-ps"
+WORKING_FOLDER="/var/priv-accept"
 OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 FINAL_OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 PRIV_ACCEPT_TIMEOUT="20m"
@@ -28,8 +28,9 @@ lang="en, en-us, en-gb, it, fr, es, de, ru"
 timeout=5
 parallel_limit=0
 website_limit=50000
+browser="chrome"
 date=$TODAY
-while getopts ":r:l:t:p:w:d:c" opt; do
+while getopts ":r:l:t:p:w:d:b:c" opt; do
     case $opt in
         r)
             remote_server=$OPTARG
@@ -52,8 +53,11 @@ while getopts ":r:l:t:p:w:d:c" opt; do
         c)
             # Do nothing
             ;;
+        b)
+            browser=$OPTARG
+            ;;
         *)
-            echo "Usage: $0 [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>] [-c]";
+            echo "Usage: $0 [-b <browser>] [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>] [-c]";
             exit 1
             ;;
     esac
@@ -129,6 +133,7 @@ parallel --load 80% \
             -v "$OUTPUTS_FOLDER"/priv-accept/{3}:/opt/priv-accept-ps/output \
             -v vpn-shared:/vpn_shared \
             salb98/priv-accept-ps:$VERSION \
+            --browser $browser \
             --url {2} \
             --outfile /opt/priv-accept-ps/output/\$(printf %05d {1})_output_{2}.json \
             --timeout $timeout \

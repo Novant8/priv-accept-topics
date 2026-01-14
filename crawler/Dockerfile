@@ -6,9 +6,13 @@
 ARG PYTHON_VERSION="3.13"
 ARG CHROME_VERSION="138.0.7204.4"
 ARG DEVTOOLS_VERSION="138"
+ARG FIREFOX_VERSION="146.0.1"
+ARG GECKODRIVER_VERSION="v0.36.0"
 
 FROM alpine/curl:latest AS downloader
 ARG CHROME_VERSION
+ARG FIREFOX_VERSION
+ARG GECKODRIVER_VERSION
 
 # Download Chrome browser, WITHOUT Privacy Sandbox Attestations
 RUN wget https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip \
@@ -20,6 +24,17 @@ RUN wget https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSI
 RUN wget https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chromedriver-linux64.zip \
     && unzip chromedriver-linux64.zip -d /opt/google-chrome \
     && rm chromedriver-linux64.zip
+
+# Download Firefox (linux64) and extract
+RUN wget https://ftp.mozilla.org/pub/firefox/releases/${FIREFOX_VERSION}/linux-x86_64/en-US/firefox-${FIREFOX_VERSION}.tar.xz \
+    && mkdir -p /opt/firefox \
+    && tar -xJf firefox-${FIREFOX_VERSION}.tar.xz -C /opt \
+    && rm firefox-${FIREFOX_VERSION}.tar.xz
+
+# Download geckodriver
+RUN wget https://github.com/mozilla/geckodriver/releases/download/${GECKODRIVER_VERSION}/geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz \
+    && tar -xzf geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz -C /opt/firefox \
+    && rm geckodriver-${GECKODRIVER_VERSION}-linux64.tar.gz
 
 FROM python:${PYTHON_VERSION} AS devtools-builder
 ARG CHROME_VERSION
@@ -52,7 +67,7 @@ ARG DEVTOOLS_VERSION
 ENV PYTHONUNBUFFERED=1
 
 # Install package dependencies
-RUN apt-get update && apt-get install -y libglib2.0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 libxdamage1 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 libxrender1 libcap2 libgcrypt20 liblzma5 libzstd1 liblz4-1 libblkid1 libgpg-error0 libmd0 xvfb
+RUN apt-get update && apt-get install -y libglib2.0-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libatspi2.0-0 libxcomposite1 libxdamage1 libgbm1 libxkbcommon0 libpango1.0-dev libcairo2 libxrender1 libcap2 libgcrypt20 liblzma5 libzstd1 liblz4-1 libblkid1 libgpg-error0 libmd0 libc6 libgtk-3-0 libstdc++6 xorg libdbus-glib-1-2 libasound2 xvfb
 
 RUN mkdir /opt/priv-accept
 
@@ -66,6 +81,8 @@ COPY --from=devtools-builder /build/devtools/v${DEVTOOLS_VERSION} /usr/local/lib
 COPY --from=downloader /opt/google-chrome/chrome-linux64 /opt/google-chrome
 COPY --from=downloader /opt/google-chrome/chromedriver-linux64/chromedriver /opt/google-chrome
 
+# Add Firefox and Geckodriver
+COPY --from=downloader /opt/firefox /opt/firefox
 COPY . /opt/priv-accept
 
 RUN chmod +x /opt/priv-accept/entrypoint.sh

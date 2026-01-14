@@ -4,6 +4,9 @@ chrome-*
 chromedriver
 chromium
 
+firefox-*
+geckodriver
+
 screenshots
 
 BrowsingTopicsSiteData
