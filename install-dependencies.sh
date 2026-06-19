@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Install apt packages
 sudo apt update
 sudo apt install parallel coreutils zip unzip snapd

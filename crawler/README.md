@@ -87,7 +87,7 @@ The crawler comes pre-packaged within a Docker container, with all the tools nee
 
 ```
 docker run [...docker_args]
-    salb98/priv-accept-ps:2.0-beta
+    priv-accept-ps:latest
     [...crawler_args]
 ```
 

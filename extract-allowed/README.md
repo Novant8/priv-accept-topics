@@ -34,7 +34,7 @@ The *Allowed*-domain extraction script comes pre-packaged in a Docker container.
 
 ```
 docker run [...docker_args]
-    salb98/priv-accept-ps:2.0-beta
+    priv-accept-ps:latest
     [...crawler_args]
 ```
 

@@ -3,11 +3,11 @@
 # Exit script on any command error
 set -e
 
-VERSION="2.0-beta3"
+VERSION="latest"
 TODAY=$(date +%Y%m%d) # YYYYMMDD
 
 # Customize these constants to your liking
-WORKING_FOLDER="/var/priv-accept"
+WORKING_FOLDER=$PWD
 OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 FINAL_OUTPUTS_FOLDER="$WORKING_FOLDER/outputs"
 PRIV_ACCEPT_TIMEOUT="20m"
@@ -27,7 +27,7 @@ cwd=$(pwd)
 lang="en, en-us, en-gb, it, fr, es, de, ru"
 timeout=5
 parallel_limit=0
-website_limit=50000
+website_limit=10000
 browser="chrome"
 date=$TODAY
 while getopts ":r:l:t:p:w:d:b:c" opt; do
@@ -57,7 +57,7 @@ while getopts ":r:l:t:p:w:d:b:c" opt; do
             browser=$OPTARG
             ;;
         *)
-            echo "Usage: $0 [-b <browser>] [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>] [-c]";
+            echo "Usage: $0 [-b <browser>] [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>]";
             exit 1
             ;;
     esac
@@ -88,7 +88,7 @@ if [ ! -f "$OUTPUTS_FOLDER/allowed_domains.csv" ]; then
     echo "EXTRACTING ALLOWED DOMAINS..."
     docker run --rm \
         -v "$OUTPUTS_FOLDER":/opt/extract-allowed-domains/output \
-        salb98/extract-allowed-domains:$VERSION \
+        extract-allowed-domains:$VERSION \
         --output /opt/extract-allowed-domains/output/allowed_domains.csv
 fi
 
@@ -110,7 +110,7 @@ if [ -n "$remote_server" ]; then
 fi
 
 # Auto-kill docker containers after 1 hour of execution
-docker_auto_kill salb98/priv-accept-ps:$VERSION &
+docker_auto_kill priv-accept-ps:$VERSION &
 docker_auto_kill_pid=$!
 
 echo "RUNNING CRAWLER..."
@@ -132,7 +132,7 @@ parallel --load 80% \
             --network "${network:=bridge}" \
             -v "$OUTPUTS_FOLDER"/priv-accept/{3}:/opt/priv-accept-ps/output \
             -v vpn-shared:/vpn_shared \
-            salb98/priv-accept-ps:$VERSION \
+            priv-accept-ps:$VERSION \
             --browser $browser \
             --url {2} \
             --outfile /opt/priv-accept-ps/output/\$(printf %05d {1})_output_{2}.json \
@@ -148,7 +148,7 @@ parallel --load 80% \
 kill $docker_auto_kill_pid || true
 
 # Auto-kill docker containers after 1 hour of execution
-docker_auto_kill salb98/priv-accept-post-process:$VERSION &
+docker_auto_kill priv-accept-post-process:$VERSION &
 docker_auto_kill_pid=$!
 
 if [ ! -f "$OUTPUTS_FOLDER/allowed_attested.csv" ]; then
@@ -159,7 +159,7 @@ if [ ! -f "$OUTPUTS_FOLDER/allowed_attested.csv" ]; then
     cut -d, -f1 |
     parallel --load 80% \
         --progress --bar --eta \
-        "docker run --rm salb98/priv-accept-post-process:$VERSION attest-domain {}" >> "$OUTPUTS_FOLDER/allowed_attested.csv"
+        "docker run --rm priv-accept-post-process:$VERSION attest-domain {} > /dev/null 2>&1" >> "$OUTPUTS_FOLDER/allowed_attested.csv"
 fi
 
 if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
@@ -178,7 +178,7 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
             docker run \
             --rm \
             -v "$OUTPUTS_FOLDER/priv-accept":/var/data:ro \
-            salb98/priv-accept-post-process:$VERSION extract-contacted-2ld \
+            priv-accept-post-process:$VERSION extract-contacted-2ld \
             -r \
             --argjson visits '$visits_json' \
             --arg full_net_log 0 \
@@ -190,7 +190,7 @@ if [ ! -f "$OUTPUTS_FOLDER/attested_domains.csv" ]; then
     sort | uniq |
     parallel --load 80% \
         --progress --bar --eta \
-        "docker run --rm salb98/priv-accept-post-process:$VERSION attest-domain {}" \
+        "docker run --rm priv-accept-post-process:$VERSION attest-domain {} > /dev/null 2>&1" \
         >> $OUTPUTS_FOLDER/attested_domains.csv
 fi
 
@@ -235,7 +235,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
                     docker run \
                     --rm \
                     -v "$OUTPUTS_FOLDER/priv-accept/$action":/var/data:ro \
-                    salb98/priv-accept-post-process:$VERSION post-process-output \
+                    priv-accept-post-process:$VERSION post-process-output \
                     --argjson visits '$visits_json' \
                     --argjson fields '$fields_json' \
                     --arg position \"\$(echo {} | cut -d_ -f1)\" \
@@ -251,7 +251,7 @@ if [ ! -f "$OUTPUTS_FOLDER/crawler_outputs.csv" ]; then
     docker run \
         --rm \
         -v "$OUTPUTS_FOLDER":/var/data:rw \
-        salb98/priv-accept-post-process:$VERSION \
+        priv-accept-post-process:$VERSION \
         merge-csv \
         /var/data/crawler_outputs_accept.csv \
         /var/data/crawler_outputs_deny.csv \

@@ -1,11 +1,11 @@
-ARG VERSION="2.0-beta"
+ARG VERSION="latest"
 ARG PYTHON_VERSION="3.13"
 
-FROM salb98/extract-allowed-domains:${VERSION} AS extract-allowed
+FROM extract-allowed-domains:${VERSION} AS extract-allowed
 
-FROM salb98/priv-accept-ps:${VERSION} AS crawler
+FROM priv-accept-ps:${VERSION} AS crawler
 
-FROM salb98/priv-accept-post-process:${VERSION} AS post-process
+FROM priv-accept-post-process:${VERSION} AS post-process
 
 FROM python:${PYTHON_VERSION}-slim AS runner
 

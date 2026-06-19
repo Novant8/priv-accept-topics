@@ -59,12 +59,19 @@ flowchart TD
 
 ### Prerequisites
 
-The script is confirmed to work on a single machine running Ubuntu 22.04 LTS with minimal requirements. The following packages are required:
+The script is confirmed to work on a single machine running Ubuntu 24.04 LTS with minimal requirements. The following packages are required:
 * **Docker**, to allow the execution of a containerized version of *Priv-Accept* with a pre-built version of the modified Chromium browser included.
 * **GNU Parallel**, to allow the execution in parallel of multiple instances of the same step for different websites.
 * **zip** and **unzip**.
 
 For machines running Ubuntu, we provide the `install-dependencies.sh` script. **Note**: Make sure to restart the machine after running it.
+
+After installing the dependencies, the necessary Docker containers need to be built. To do this, you can run the `build.sh` script.
+
+In summary, the easiest way to prepare an Ubuntu machine to run the campaign is the following:
+* Run `install-dependencies.sh`
+* Reboot the machine
+* Run `build.sh`
 
 ### Running the script
 
@@ -83,14 +90,30 @@ The beginning of the bash script contains the definitions of constants which can
 * `CHROME_CONFIG_FOLDER`: where Chrome's local configuration folder is located.
 * `WEBSITE_LIMIT`: how many websites to visit.
 * `PRIV_ACCEPT_TIMEOUT`: how long to wait for *Priv-Accept* to produce an output relative to a single website before automatically killing its instance.
+* `EXPRESSVPN_ACTIVATION_CODE`: ExpressVPN activation code used by the script. Replace the placeholder value in the script with your ExpressVPN activation code if you intend to run crawls through an ExpressVPN server; leave as the default placeholder to skip VPN usage.
 
-## Performing the measurements of a single website
+### Script flags
+
+The crawling script `analyze-ps-complete.sh` accepts several command-line flags to control its behaviour. Usage:
+```
+bash analyze-ps-complete.sh [-b <browser>] [-d <date>] [-l <lang>] [-r <remote_location>] [-t <timeout>] [-p <parallel_max>] [-w <websites>]
+```
+Flags:
+- `-b <browser>`: Browser to use for the crawler (`chrome` or `firefox`. default: `chrome`).
+- `-d <date>`: Date suffix to use for outputs (format YYYYMMDD). Defaults to today's date.
+- `-l <lang>`: Comma-separated list of languages to pass to the browser (default: `en, en-us, en-gb, it, fr, es, de, ru`).
+- `-r <remote_location>`: Label for a remote location / VPN server. When set, the outputs folder and some container names get a `-<remote_location>` suffix and an ExpressVPN container is started.
+- `-t <timeout>`: Per-page timeout passed to the crawler (default: `5`).
+- `-p <parallel_max>`: Maximum concurrent jobs for GNU Parallel (default: `0`).
+- `-w <websites>`: How many websites to visit from the Tranco list (default: `10000`)
+
+## Performing the measurements on a single website
 
 For crawling a single website, we provide a pre-built Docker container with all dependencies already installed. The analysis can be run with the following command:
 ```shell
 docker run [...docker_args]
     -v <local_output_dir>:/opt/priv-accept-ps/output
-    salb98/query-privacy-sandbox-usage:2.0-beta <url> [--deny]
+    query-privacy-sandbox-usage:latest <url> [--deny]
 ```
 When the crawling is complete, the output folder will contain a `final-output.json` file, containing the most meaningful results.
 

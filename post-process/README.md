@@ -133,9 +133,9 @@ python merge-csv.py [-h]
 
 # Docker container
 
-All of these tools can be invoked from a pre-packaged [Docker container](https://hub.docker.com/r/salb98/priv-accept-post-process) as follows:
+All of these tools can be invoked from a pre-packaged Docker container as follows:
 ```
-docker run [...docker_args] salb98/priv-accept-post-process:2.0-beta
+docker run [...docker_args] priv-accept-post-process:latest
   <extract-contacted-2ld | attest-domain | post-process-output | merge-csv>
   [...tool_args]
 ```
